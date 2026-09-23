@@ -37,7 +37,89 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=ut
         ".jsonl": "application/x-ndjson; charset=utf-8", ".gz": "application/gzip",
         ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
 
-NOTE = re.compile(r"^[,']*[qsdh]*[,']*[#b♯♭]?[1-7x0][,']*[.]*$")
+# 简谱 token 口径**只有一份**: 复用 skill 目录里的 jptok.py。
+# 这里以前自带一份"前缀时值"正则 —— 投稿里若写 `6c.`/`5s`/`3q` 这种**后缀**时值,
+# 那些 token 会被判成"不是音符"而整段丢掉(与 2026-09-23 索引丢音事故同一个坑)。
+sys.path.insert(0, os.path.join(ROOT, "..", "jianpu2", "skills", "jianpu-melody-lookup"))
+try:
+    import jptok
+except Exception:                       # 兜底正则: 与 jptok.py 同口径(时值+变音前后都认)
+    jptok = None
+NOTE = re.compile(r"^[cqsdh]*[,']*[#b♯♭]?[1-7x0][,']*[#b♯♭]?[cqsdh]*[.]*[\[\]]?$")
+_is_note = (lambda t: jptok.is_note(t)) if jptok else (lambda t: bool(NOTE.match(t)))
+
+# 收录页 URL 的口径**只有一份**: jianpu-db/linkurl.py(纯函数, 不读 tags.json)。
+# 它同时负责"搜索页一律拒收"与"写进曲谱文件"—— 前端粘贴保存和 CLI 都走它。
+sys.path.insert(0, DB)
+try:
+    import linkurl
+except Exception:                       # DB 路径不对 -> 宁可拒绝写, 也不写未校验的 URL
+    linkurl = None
+HERE_WEB = ROOT
+REFRESH_LOG = os.path.join(HERE_WEB, "data", "refresh.log")
+REFRESH_LOCK = os.path.join(HERE_WEB, "data", ".refresh.lock")
+REFRESH_PENDING = os.path.join(HERE_WEB, "data", ".refresh.pending")
+
+
+def start_refresh():
+    """后台重建索引: parse_scores(重建 data.jsonl/bars) + build_web_data(前端索引)。
+    返回 (是否已排上, 说明)。若正有一轮在跑: 放一个 pending 标记让它在跑完后**再来一轮**,
+    免得这一次保存的链接被漏掉(并发缺口)。"""
+    script = os.path.join(HERE_WEB, "tools", "refresh.sh")
+    if not os.path.isfile(script):
+        return False, "没有 tools/refresh.sh"
+    if os.path.exists(REFRESH_LOCK):
+        try:
+            if time.time() - os.path.getmtime(REFRESH_LOCK) < 600:
+                with io.open(REFRESH_PENDING, "w", encoding="utf-8") as g:
+                    g.write(str(os.getpid()))
+                return True, "已排队(等当前重建跑完自动再来一轮)"
+        except OSError:
+            pass
+    try:
+        with io.open(REFRESH_LOCK, "w", encoding="utf-8") as g:
+            g.write(str(os.getpid()))
+        with io.open(REFRESH_LOG, "ab") as g:
+            subprocess.Popen(["bash", script], cwd=HERE_WEB, stdout=g, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+        return True, "已开始重建(约 2 分钟)"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def save_link(payload, note="", contact=""):
+    """人工补收录页: 校验(搜索页拒收) -> 留档 -> 写进 scores/<file>.txt -> git commit -> 后台重建。"""
+    if linkurl is None:
+        return 500, {"ok": False, "err": f"找不到 linkurl.py —— JIANPU_DB={DB} 对吗?"}
+    base = os.path.basename(payload.get("file") or "")
+    if not base or base != (payload.get("file") or "") or not base.endswith(".txt"):
+        return 400, {"ok": False, "err": "文件名不合法"}
+    path = os.path.join(DB, "scores", base)
+    if not os.path.isfile(path):
+        return 400, {"ok": False, "err": "语料里没有这份曲谱: " + base}
+    # 留档(与其他投稿一致: 永远先存, 不怕后面失败)
+    os.makedirs(FEEDBACK, exist_ok=True)
+    rid = time.strftime("%Y%m%d-%H%M%S") + "-link-" + _safe(base[:-4], 20)
+    with io.open(os.path.join(FEEDBACK, rid + ".json"), "w", encoding="utf-8", newline="\n") as g:
+        g.write(json.dumps({"id": rid, "kind": "link", "file": base,
+                            "url": payload.get("url") or "", "note": note, "contact": contact,
+                            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "ip": payload.get("_ip", "")}, ensure_ascii=False, indent=2))
+    try:
+        added, already = linkurl.add_to_score_file(path, payload.get("url") or "")
+    except ValueError as e:
+        return 400, {"ok": False, "err": str(e)}
+    except Exception as e:
+        return 500, {"ok": False, "err": f"{type(e).__name__}: {e}"}
+    if not added:
+        return 200, {"ok": True, "file": base, "state": "已存在", "committed": False,
+                     "refresh": False, "url": already}
+    rel = os.path.join("scores", base)
+    rc, out = _git("commit", "-q", "-m", f"link: {base} —— 人工补收录页({len(added)} 条)", "--", rel)
+    refresh, why = start_refresh()
+    return 200, {"ok": True, "file": base, "state": "已写入", "committed": rc == 0,
+                 "git": out[-300:] if rc else "", "url": added,
+                 "refresh": refresh, "refresh_msg": why}
 
 
 def _safe(s, n=80):
@@ -61,6 +143,9 @@ def handle_submit(payload):
     score = (payload.get("score") or "").strip()
     note = (payload.get("note") or "").strip()
     contact = (payload.get("contact") or "").strip()
+    # ①a kind=link(「＋ 补收录页」): 身份是**文件**而不是曲名 -> 不走"请填曲名"与建谱流程
+    if kind == "link":
+        return save_link(payload, note, contact)
     if not title:
         return 400, {"ok": False, "err": "请填曲名"}
     ts = time.strftime("%Y%m%d-%H%M%S")
@@ -82,7 +167,7 @@ def handle_submit(payload):
     src = score if " " in score.strip() else re.sub(r"\s*", " ", re.sub(r"([#b♯♭]?\d)", r" \1", score)).strip()
     if " " not in score.strip() and score.strip():
         src = " ".join(re.findall(r"[#b♯♭]?[0-9]", score))
-    toks = [t for t in src.split() if NOTE.match(t) or t in ("-", "|", "~")]
+    toks = [t for t in src.split() if _is_note(t) or t in ("-", "|", "~")]
     if len(toks) >= 5:
         name = _safe(title, 60)
         p = os.path.join(DB, "scores", name + ".txt")

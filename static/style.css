@@ -52,5 +52,27 @@ table.meta td { padding: .1rem 0; vertical-align: top; word-break: break-word; }
 .links a:hover { border-color: var(--accent); text-decoration: none; }
 .links .add { color: var(--dim); }
 .links .add:hover { color: var(--accent); }
+
+/* 收录页(确切页面) vs 去找这一页(搜索链接): 视觉上必须一眼分得开 */
+.links .exact { background: #eef7ee; border-color: #b7dcb7; color: #1c5c1c; font-weight: 500; }
+.links .exact:hover { border-color: #1c5c1c; }
+.links .todo { font-size: .84rem; color: #a15c00; background: #fff6e5; border: 1px dashed #e0b070;
+  border-radius: 999px; padding: .1rem .55rem; }
+.links .find { color: var(--dim); font-size: .84rem; }
+.links .find .lab { margin-right: .15rem; }
+.links .find a { color: var(--dim); border-style: dashed; }
+.addlink { font-size: .84rem; color: var(--dim); }
+.addlink summary { cursor: pointer; border: 1px solid var(--line); border-radius: 999px;
+  padding: .1rem .55rem; display: inline-block; }
+.addlink[open] { flex-basis: 100%; }
+.addlink .hint { margin: .35rem 0; }
+.addlink input.al-url { width: min(28rem, 92%); font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .84rem; padding: .2rem .45rem; border: 1px solid var(--line); border-radius: 5px; }
+.addlink button.al-go { margin-left: .3rem; font-size: .84rem; padding: .2rem .7rem; border-radius: 5px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+.addlink button.al-go[disabled] { opacity: .5; cursor: default; }
+.al-msg { margin-left: .5rem; }
+.al-msg.ok { color: #177245; }
+.al-msg.err { color: #b42318; }
 .hint { color: var(--dim); font-size: .85rem; margin-top: .6rem; }
 footer { color: #6b7280; font-size: .84rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }

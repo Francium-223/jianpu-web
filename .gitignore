@@ -1,5 +1,7 @@
 songs.jsonl
 __pycache__/
 *.pyc
-
 _commitmsg.txt
+data/refresh.log
+data/.refresh.lock
+data/.refresh.pending

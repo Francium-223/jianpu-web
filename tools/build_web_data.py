@@ -24,17 +24,19 @@ try:
 except Exception:
     jptok = None
 ZW = dict.fromkeys(map(ord, "\u200b-\u200f\u202a-\u202e\u2060\ufeff"), None)
-TOK = re.compile(r"^([qsdh]*)([,']*)([#b♯♭]?)([1-7x0])([,']*)[.]*$")
+# 兜底正则(只在 import jptok 失败时用): 与 jptok.py **同口径** —— 时值字母在数字前后都认,
+# 否则 `6c.`/`5s`/`3q` 这类后缀 token 会被丢掉(2026-09-23 索引丢音事故就是这个坑)。
+TOK = re.compile(r"^([cqsdh]*)([,']*)([#b♯♭]?)([1-7x0])([,']*)([#b♯♭]?)([cqsdh]*)[.]*([\[\]]?)$")
 
 
 def parse(t):
     if jptok:
         return jptok.parse_token(t)
-    m = TOK.match(t)
+    m = TOK.match(t or "")
     if not m:
         return None
-    _pre, octs, acc, dig, post = m.groups()
-    a = 1 if acc in ("#", "♯") else (-1 if acc in ("b", "♭") else 0)
+    _pre, octs, acc, dig, post, acc2, _post2, _mark = m.groups()
+    a = 1 if (acc in ("#", "♯") or acc2 in ("#", "♯")) else (-1 if (acc in ("b", "♭") or acc2 in ("b", "♭")) else 0)
     off = (octs + post).count(",") - (octs + post).count("'")
     return (None, a, off) if dig in "0x" else (int(dig), a, off)
 
@@ -52,6 +54,16 @@ def main():
     os.makedirs(a.out, exist_ok=True)
 
     rows, srcs, notes = [], {}, 0
+    # 原谱站的**确切页面**: 由 jianpu2/tools/verify_source_urls.py 逐条抓取核对后写下的映射
+    # (source 里只有 `qupu123-300587` 这种 ID; 这里把它换成那一页的真实 URL)
+    DB = os.path.dirname(os.path.abspath(a.data))
+    srcpages = {}
+    _sp = os.path.join(DB, "source_pages.json")
+    if os.path.isfile(_sp):
+        try:
+            srcpages = json.load(io.open(_sp, encoding="utf-8"))
+        except Exception as e:
+            print("! source_pages.json 读不动: %s" % e)
     for ln in io.open(a.data, encoding="utf-8"):
         ln = ln.strip()
         if not ln:
@@ -79,6 +91,11 @@ def main():
             "n": len(p), "p": "".join(p), "a": "".join(acc), "o": ",".join(oct_),
             "g": group_of(r.get("title")),
             "mbid": (r.get("MBID") or ""),
+            # 收录页(用户口径: 要"具体收录的那一页", 不要搜索页):
+            #   links  = 人工核对后写进 scores/<file>.txt 的 `link=`(可多个)
+            #   srcurl = 原谱站那一页(由 source 的站点+ID 推出并抓取核对过)
+            "links": [str(x) for x in (r.get("link") or [])],
+            "srcurl": (srcpages.get(src) or {}).get("url", "") if src else "",
             "raw": " ".join(toks if len(toks) < 400 else toks[:400]),
             "trunc": len(toks) > 400,
             # 小节线: data.jsonl 给的是"第 i 个音符之前有一条小节线"(0-based 音符下标)。

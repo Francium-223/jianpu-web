@@ -32,6 +32,9 @@ export function buildIndex(text) {
       bars: r.bars || [], bpb: r.bpb || 4,
       file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
       alias: r.alias || [], transcriber: r.transcriber || [],
+      // ⚠ 这几个以前漏在这里 -> 索引里明明有, 结果卡上永远看不到(同一类"白名单丢字段"):
+      //   mbid  = MusicBrainz 录音页; links = 人工补的收录页; srcurl = 原谱站核对过的确切页
+      mbid: r.mbid || '', links: r.links || [], srcurl: r.srcurl || '',
     });
   }
   const groups = new Map();
@@ -127,6 +130,7 @@ export function search(idx, segs, opt) {
       raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars, bpb: h.song.bpb,
       file: h.song.file, tags: h.song.tags, usertags: h.song.usertags,
       alias: h.song.alias, transcriber: h.song.transcriber, mbid: h.song.mbid,
+      links: h.song.links || [], srcurl: h.song.srcurl || '',
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
     };
