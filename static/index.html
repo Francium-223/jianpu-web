@@ -29,12 +29,46 @@
   <p id="status" class="status">正在加载语料…</p>
   <div id="out"></div>
 
+  <h2>投稿 / 纠错（不用登录）</h2>
+  <p class="lead">三件事：<b>推荐收录</b>（库里没有的歌）、<b>纠错</b>（这一首转错了）、<b>元数据</b>（曲名/出处/标签不对）。
+    填完点一下就行 —— 投稿会直接落到服务端并入库，<b>不需要 GitHub 账号，也不需要打开 GitHub</b>。</p>
+
+  <form id="sform">
+    <p>
+      <label for="skind">类型</label>
+      <select id="skind">
+        <option value="new">推荐收录（库里没有）</option>
+        <option value="fix">纠错（这首转错了）</option>
+        <option value="meta">元数据（曲名/出处/标签不对）</option>
+      </select>
+    </p>
+    <p>
+      <label for="stitle">曲名</label>
+      <input type="text" id="stitle" size="30" placeholder="必填">
+      <button type="button" id="sfill">用刚才查询的曲名填入</button>
+    </p>
+    <p>
+      <label for="sscore">这段旋律的简谱数字（可选，但填了最有价值：会直接生成一份曲谱入库）</label><br>
+      <input type="text" id="sscore" size="46" placeholder="例如 63731232">
+    </p>
+    <p>
+      <label for="snote">说明（可选）：原谱链接、哪里不对、你听到的是什么…</label><br>
+      <input type="text" id="snote" size="46">
+    </p>
+    <p>
+      <label for="scontact">联系方式（可选，想被回复时填）</label>
+      <input type="text" id="scontact" size="20">
+      <button type="submit" id="sgo">提交</button>
+    </p>
+  </form>
+  <p id="sstatus" class="status"></p>
+
   <footer>
     <span id="stats"></span><br>
     检索：滑窗逐音比较（代价模型：自然↔自然 0、自然↔带记号 1、写了记号却没对上 2、音级不同 4）
     → 按曲名归组取组内最优 → 热度破并列。查询完全在本地浏览器里跑，不联网。<br>
-    数据来自 <a href="https://huggingface.co/datasets/Caesium-132/chinese-jianpu-corpus" target="_blank" rel="noopener">chinese-jianpu-corpus</a>；
-    发现缺谱/错谱可点结果里的「＋ 反馈/补充」，会打开一个预填好的 GitHub Issue。
+    数据来自 <a href="https://huggingface.co/datasets/Caesium-132/chinese-jianpu-corpus" target="_blank" rel="noopener">chinese-jianpu-corpus</a>。
+    投稿走本服务，不依赖 GitHub；服务不在线时表单会自动给出 GitHub 兜底链接。
   </footer>
 
 </div>

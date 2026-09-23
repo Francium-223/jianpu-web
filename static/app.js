@@ -116,6 +116,7 @@ function render(segs, res, ms) {
     (tied > 1 ? '；最优并列 ' + tied + ' 组（片段不够独特，加长或补第二段）' : '');
 
   var html = '';
+  LAST = res[0].group;                 // 供"投稿"表单的「用刚才查询的曲名填入」
   for (var k = 0; k < res.length; k++) {
     var r = res[k];
     html += '<div class="card' + (k === 0 ? ' top' : '') + '">' +
@@ -151,6 +152,51 @@ for (var i = 0; i < exs.length; i++) {
     run();
   });
 }
+
+/* ---------- 投稿(不用登录, 不碰 GitHub) ---------- */
+var API = window.JIANPU_API || (location.protocol + '//' + location.host);   // 同源; 换服务器就设 window.JIANPU_API
+var LAST = '';
+
+function submit() {
+  var t = $('stitle').value.trim();
+  if (!t) { $('sstatus').className = 'status err'; $('sstatus').textContent = '请填曲名。'; return; }
+  var body = {
+    kind: $('skind').value, title: t,
+    score: $('sscore').value.trim(), note: $('snote').value.trim(),
+    contact: $('scontact').value.trim()
+  };
+  $('sstatus').className = 'status';
+  $('sstatus').textContent = '提交中…';
+  $('sgo').disabled = true;
+  fetch(API + '/api/submit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }).then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+    .then(function (x) {
+      $('sgo').disabled = false;
+      if (x.j && x.j.ok) {
+        $('sstatus').textContent = '已收到，编号 ' + x.j.id +
+          (x.j.score_file ? '（已生成曲谱 ' + x.j.score_file + ' 入库）' : '（只留了投稿，没有数字）');
+        $('stitle').value = ''; $('sscore').value = ''; $('snote').value = '';
+      } else {
+        $('sstatus').className = 'status err';
+        $('sstatus').textContent = '提交失败：' + ((x.j && x.j.err) || ('HTTP ' + x.s)) +
+          '。可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+        $('sstatus').innerHTML = $('sstatus').textContent;
+      }
+    })
+    .catch(function (e) {
+      $('sgo').disabled = false;
+      $('sstatus').className = 'status err';
+      $('sstatus').innerHTML = '连不上投稿服务（' + e.message + '）。' +
+        '可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+    });
+}
+
+$('sform').addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+$('sfill').addEventListener('click', function () {
+  if (LAST) { $('stitle').value = LAST; }
+  else { $('sstatus').textContent = '先在上面查一次，再点这个按钮。'; }
+});
 
 loadCorpus().then(function (txt) {
   IDX = buildIndex(txt);
