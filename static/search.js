@@ -121,7 +121,7 @@ export function search(idx, segs, opt) {
     return {
       title: h.song.title, group: r.group, source: h.song.source, status: h.song.status,
       n: h.song.n, cost: r.total, exact: r.exact, qlen: n, at: h.at,
-      raw: h.song.raw, trunc: h.song.trunc,
+      raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars,
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
     };

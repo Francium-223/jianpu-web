@@ -52,3 +52,5 @@ button:disabled { opacity: .55; cursor: default; }
 .links .add:hover { border-color: var(--accent); color: var(--accent); }
 .hint { color: var(--dim); font-size: .85rem; margin-top: .5rem; }
 footer { color: var(--dim); font-size: .85rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }
+
+.score .bar { color: #98a2b3; font-weight: 400; margin: 0 .15em; }

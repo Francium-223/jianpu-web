@@ -1,5 +1,5 @@
 import { buildIndex, search } from './search.js';
-import { parseQuery, show } from './jptok.js';
+import { parseQuery, parseToken, show } from './jptok.js';
 
 /* 数据侧: 只需要"曲名 + 出处" 就能给出可点的外链 —— 不依赖任何 API/key */
 var REPO = 'Francium-223/jianpu-db';
@@ -56,18 +56,35 @@ function issueUrl(text) {
       '---\n由简谱旋律查歌前端自动填写\n');
 }
 
-function renderScore(raw, at, qlen) {
+/* 把原谱原文渲染成 HTML, 并把"命中段"的 token 标黑。
+ *
+ * **必须用 parseToken 判音符**, 不能自己写正则: 索引里的 `at` 是"第几个音符"的序号,
+ * 而 raw 里混着时值前缀(展开后几乎是每个 token 都带 q/s 前缀)、小节线 `|`、延长 `-`。
+ * 之前这里用了一条**抄窄了的**正则, 它把 `q3` 之类的 token 判成"不是音符",
+ * 于是 notePos 与索引的序号对不上 -> 高亮跑到别的地方去了(用户实测: 搜 623532
+ * 却标出 `q5 s5 q,5. ...`)。口径只能有一份: 用 jptok.parseToken。
+ */
+function renderScore(raw, at, qlen, bars) {
   if (!raw) return '';
   var toks = raw.split(' ');
-  var notePos = [];
+  var barSet = {};
+  (bars || []).forEach(function (b) { barSet[b] = 1; });
+  var noteIdx = -1, html = [], endTok = -1, startTok = -1;
   for (var i = 0; i < toks.length; i++) {
-    if (/^([qsdh]*)([,']*)([#b♯♭]?)([1-7x0])([,']*)[.]*$/.test(toks[i])) notePos.push(i);
+    if (parseToken(toks[i])) {
+      noteIdx++;
+      if (noteIdx === at) startTok = i;
+      if (noteIdx === at + qlen - 1) endTok = i;
+    }
   }
-  if (at >= notePos.length) return esc(raw);
-  var startTok = notePos[at];
-  var endTok = (at + qlen - 1 < notePos.length) ? notePos[at + qlen - 1] : toks.length - 1;
-  var html = [];
+  if (startTok < 0) return esc(raw);
+  if (endTok < 0) endTok = toks.length - 1;
+  noteIdx = -1;
   for (var j = 0; j < toks.length; j++) {
+    // 音节线画在"它之前的那条"位置: bars 里记的是音符下标
+    var isNote = !!parseToken(toks[j]);
+    if (isNote) noteIdx++;
+    if (isNote && barSet[noteIdx] && j !== startTok) html.push('<span class="bar">|</span> ');
     if (j === startTok) html.push('<mark>');
     if (j === endTok + 1) html.push('</mark>');
     html.push(esc(toks[j]));
@@ -131,7 +148,7 @@ function render(segs, res, ms) {
       '<div class="meta">出处 ' + (r.source ? esc(r.source) : '—') + '</div>' +
       '<div class="cmp"><span class="lab">库内该段</span> ' + esc(show(r.libNotes)) +
         '　<span class="lab">你的输入</span> ' + esc(show(r.qNotes)) + '</div>' +
-      '<div class="score">' + renderScore(r.raw, r.at, r.qlen) + '</div>' +
+      '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +
       '<div class="links">' + externalLinks(r) +
         '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener" ' +
         'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +

@@ -81,6 +81,10 @@ def main():
             "mbid": (r.get("MBID") or ""),
             "raw": " ".join(toks if len(toks) < 400 else toks[:400]),
             "trunc": len(toks) > 400,
+            # 小节线: data.jsonl 给的是"第 i 个音符之前有一条小节线"(0-based 音符下标)。
+            # **按音符序号而非 token 序号**, 前端在音符流里对应位置插 `|`。
+            "bars": [int(x) for x in (r.get("bars") or []) if isinstance(x, int)],
+            "bpb": float(r.get("beats_per_bar") or 4.0),
         })
 
     outj = os.path.join(a.out, "songs.jsonl.gz")

@@ -1,7 +1,7 @@
 {
   "songs": 7385,
   "notes": 1305901,
-  "groups": 6940,
+  "groups": 6973,
   "sources": {
     "qupu123": 3352,
     "jianpucn": 3251,
@@ -12,7 +12,7 @@
     "21qupu": 1,
     "qpcxw": 1
   },
-  "bytes_gz": 2091004,
+  "bytes_gz": 2552098,
   "with_accidental": 16,
   "with_raw": 7385
 }
