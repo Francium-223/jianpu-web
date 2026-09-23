@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>简谱旋律查歌</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1>简谱旋律查歌</h1>
+  <p class="lead">输入一段旋律的<strong>唱名数字</strong>（1–7），查出它是哪首歌。
+    不需要写时值或八度记号（<code>#5</code>、<code>,6</code>、<code>'1</code> 写了更准）。
+    空格不分段；用逗号/分号/竖线分成多段会更准。</p>
+
+  <form id="form">
+    <input type="text" id="q" autocomplete="off" placeholder="例如 63731232 或 55532235,3211612655">
+    <button type="submit" id="go">查</button>
+  </form>
+
+  <p class="examples">例子：
+    <a href="#" class="ex" data-q="63731232">63731232</a>
+    <a href="#" class="ex" data-q="55532235 3211612655">55532235 3211612655</a>
+    <a href="#" class="ex" data-q="66165535 532322 7656">66165535 532322 7656</a>
+    <a href="#" class="ex" data-q="5111156711">5111156711</a>
+  </p>
+
+  <p id="status" class="status">正在加载语料…</p>
+  <div id="out"></div>
+
+  <footer>
+    <span id="stats"></span><br>
+    检索：滑窗逐音比较（代价模型：自然↔自然 0、自然↔带记号 1、写了记号却没对上 2、音级不同 4）
+    → 按曲名归组取组内最优 → 热度破并列。查询完全在本地浏览器里跑，不联网。<br>
+    数据来自 <a href="https://huggingface.co/datasets/Caesium-132/chinese-jianpu-corpus" target="_blank" rel="noopener">chinese-jianpu-corpus</a>；
+    发现缺谱/错谱可点结果里的「＋ 反馈/补充」，会打开一个预填好的 GitHub Issue。
+  </footer>
+
+</div>
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>

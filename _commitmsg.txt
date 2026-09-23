@@ -1,0 +1,9 @@
+简谱旋律查歌前端: 本地检索 + 原谱高亮 + 外链/一键反馈
+
+- 纯静态、零依赖: 浏览器端跑滑窗代价模型(自然 / # / b 非对称代价), 7385 首一次加载 2.1MB gz
+- 结果卡: 曲名 / 代价 / 记号命中 / 音符数 / 状态 / 出处
+  + 原谱原文并标黑命中段 + 并排显示"库内该段 vs 你的输入"
+- 外链: MusicBrainz(有 MBID 时直链 recording) / 网易云 / QQ音乐 / B站 / YouTube / 原谱站
+- 加号按钮一键打开预填好的 GitHub Issue(建议收录 / 反馈补充)
+
+Co-authored-by: deepseek-ai <service@deepseek.com>
