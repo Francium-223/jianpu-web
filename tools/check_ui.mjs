@@ -16,7 +16,8 @@ function mkEl(id) {
     querySelector() { return mkEl(id + '-q'); }, querySelectorAll() { return []; },
   });
 }
-global.document = { getElementById: mkEl, getElementsByClassName: () => [], querySelectorAll: () => [] };
+global.document = { getElementById: mkEl, getElementsByClassName: () => [], querySelectorAll: () => [],
+  addEventListener(ev, fn) { (handlers['document'] = handlers['document'] || {})[ev] = fn; } };
 global.window = global;
 global.location = { protocol: 'http:', host: '127.0.0.1:8770' };
 global.performance = { now: () => Date.now() };
@@ -64,5 +65,20 @@ for (const [name, re] of [['卡片', /class="card/], ['标黑', /<mark>/], ['收
 // 把卡片开头一小段打出来, 方便肉眼核对
 const i = out.indexOf('<div class="links">');
 console.log('\n链接区 HTML:\n', out.slice(i, i + 900).replace(/></g, '>\n<'));
+
+// ---- 「按曲名找」也要能真的渲染(补收录页/标签的工作流入口) ----
+mkEl('tq').value = process.argv[3] || '神々';
+const th = handlers['tform'] && handlers['tform'].submit;
+ok(!!th, 'app.js 给 #tform 注册了 submit 处理器');
+if (th) {
+  th({ preventDefault() {} });
+  const tout = mkEl('tout').innerHTML;
+  ok(mkEl('tstatus').textContent.includes('命中'), '按曲名找到了: ' + mkEl('tstatus').textContent.slice(0, 60));
+  ok(/class="card/.test(tout), '按曲名结果渲染出了卡片');
+  for (const [name, re] of [['收录页行', /class="lab">收录页/], ['待补充或精确链接', /(class="exact"|待补充)/],
+                            ['补收录页表单', /class="addlink"/]]) {
+    ok(re.test(tout), '按曲名卡片里有「' + name + '」');
+  }
+}
 console.log(fail === 0 ? '\nUI 渲染自检 通过' : `\nUI 渲染自检 失败 ${fail} 项`);
 process.exitCode = fail ? 1 : 0;

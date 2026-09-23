@@ -29,6 +29,16 @@
   <p id="status" class="status">正在加载语料…</p>
   <div id="out"></div>
 
+  <h2>按曲名找</h2>
+  <p class="lead">想给<b>某一首</b>补收录页/标签、或核对元数据时用这里：按曲名（或别名）调出它的卡片。
+    卡片里的「收录页」是确切页面，缺的会点名"待补充"；旁边可以直接粘贴链接保存。</p>
+  <form id="tform">
+    <input type="text" id="tq" autocomplete="off" placeholder="例如 神々 / 月亮代表我的心 / 上春山">
+    <button type="submit" id="tgo">找</button>
+  </form>
+  <p id="tstatus" class="status"></p>
+  <div id="tout"></div>
+
   <h2>投稿 / 纠错（不用登录）</h2>
   <p class="lead">三件事：<b>推荐收录</b>（库里没有的歌）、<b>纠错</b>（这一首转错了）、<b>元数据</b>（曲名/出处/标签不对）。
     填完点一下就行 —— 投稿会直接落到服务端并入库，<b>不需要 GitHub 账号，也不需要打开 GitHub</b>。</p>

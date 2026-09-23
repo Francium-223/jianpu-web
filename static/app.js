@@ -280,9 +280,59 @@ function render(segs, res, ms) {
 
 $('form').addEventListener('submit', run);
 
+/* ---------------- 「按曲名找」----------------
+ * 为什么需要: 补收录页/标签、核对元数据时都是"对着某一首"操作, 而上面的旋律查歌得先知道旋律。
+ * 这里只按本地索引(曲名/别名)过滤, 不联网; 卡片与旋律结果卡共用 metaRows / exactLinks 等,
+ * 所以「收录页」「待补充」「＋补收录页」的行为完全一致。 */
+function titleSearch(q) {
+  var s = String(q || '').trim().toLowerCase();
+  if (!s || !IDX) return [];
+  var out = [];
+  for (var i = 0; i < IDX.songs.length && out.length < 40; i++) {
+    var x = IDX.songs[i];
+    var hay = [x.title, x.group, (x.alias || []).join(' ')].join(' ').toLowerCase();
+    if (hay.indexOf(s) >= 0) out.push(x);
+  }
+  return out;
+}
+
+function renderTitle(list, q) {
+  if (!list.length) {
+    $('tstatus').className = 'status err';
+    $('tstatus').textContent = '按曲名没找到「' + q + '」。换个更短的关键词，或用上面的旋律查歌。';
+    $('tout').innerHTML = '';
+    return;
+  }
+  $('tstatus').className = 'status';
+  $('tstatus').textContent = '按曲名「' + q + '」命中 ' + list.length + ' 首' +
+    (list.length >= 40 ? '（只显示前 40 首，写更具体一点）' : '');
+  var html = '';
+  for (var k = 0; k < list.length; k++) {
+    var x = list[k];
+    html += '<div class="card">' +
+      '<div class="head"><span class="title">' + esc(x.group || x.title) + '</span>' +
+        '<span class="badge">' + x.n + ' 音符</span>' +
+        '<span class="badge">' + esc(x.status || '?') + '</span>' +
+      '</div>' + metaRows(x) +
+      '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x) +
+        '<span class="find"><span class="lab">去找这一页</span> ' + searchLinks(x) + '</span>' +
+        addLinkForm(x) + '</div>' +
+      (x.raw ? '<div class="score">' + esc(x.raw) + '</div>' : '') +
+      '</div>';
+  }
+  $('tout').innerHTML = html;
+}
+
+if ($('tform')) {
+  $('tform').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    renderTitle(titleSearch($('tq').value), $('tq').value);
+  });
+}
+
 /* 「＋ 补收录页」的保存: 走已有投稿接口 -> 服务端校验后把 link=<url> 写进 scores/<file>.txt
  * 并 git commit, 再重建索引。返回值里的 file/commit/refresh 用来给用户回话。 */
-$('out').addEventListener('click', function (ev) {
+document.addEventListener('click', function (ev) {
   var b = ev.target && ev.target.closest ? ev.target.closest('.al-go') : null;
   if (!b) return;
   var box = b.closest('.addlink');

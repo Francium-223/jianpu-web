@@ -17,6 +17,8 @@ global.document = {
   getElementById: mkEl,
   getElementsByClassName: () => [],
   querySelectorAll: () => [],
+  // app.js 用全局委托接「＋ 补收录页」的保存按钮(结果区有 #out / #tout 两个)
+  addEventListener(ev, fn) { (global._docHandlers = global._docHandlers || {})[ev] = fn; },
 };
 global.window = global;
 global.location = { protocol: 'http:', host: '127.0.0.1:8770' };

@@ -6,6 +6,7 @@ import { gunzipSync } from 'node:zlib';
 const QUERY = process.argv[2] || '63731232';
 
 // ---- 假 DOM ----
+const handlers = {};
 const els = {};
 function mkEl(id) {
   return els[id] || (els[id] = {
@@ -19,6 +20,8 @@ global.document = {
   getElementById: mkEl,
   getElementsByClassName: () => [],
   querySelectorAll: () => [],
+  // app.js 用全局委托接「＋ 补收录页」的保存按钮(结果区有两个: #out / #tout)
+  addEventListener(ev, fn) { (handlers['document'] = handlers['document'] || {})[ev] = fn; },
 };
 global.window = global;
 global.location = { protocol: 'http:', host: '127.0.0.1:8770' };
