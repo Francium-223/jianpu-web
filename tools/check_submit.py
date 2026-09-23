@@ -103,6 +103,70 @@ def test_unique_rid(m, tmp):
     ok(len(os.listdir(tmp)) == 4, "4 份留档都在, 没有互相覆盖")
 
 
+def test_write_into_score(m, tmp):
+    """写进曲谱的唯一实现(linkurl.add_usertag)不许被"奇怪输入"破坏文件。
+
+    2026-09-24 实测的洞: 标签 `x\\u2028abc`(6 字, 不含 `=`/`,`/`|`/`%`)能通过校验被写进去,
+    因为 `str.splitlines()` 还认 \\v \\f \\x1c \\x1d \\x1e \\x85 U+2028 U+2029 —— 头部凭空多出一行,
+    score.py 把那一行当**列表键的续行**, usertag 于是从 ['th10','民歌'] 变成 ['th10','民歌','abc']。
+    旋律没坏(509 个音高音不变), 但"读者能往标签里塞任意内容"就是没校验干净。
+    """
+    if m.linkurl is None:
+        ok(False, "linkurl 没加载, 跳过写盘测试")
+        return
+    src = os.path.join(m.DB, "scores", "th10_06.txt")
+    if not os.path.isfile(src):
+        print("  (没有 th10_06.txt, 跳过写盘测试)"); return
+    wrk = os.path.join(tmp, "scorecopy")
+    os.makedirs(wrk, exist_ok=True)
+    dst = os.path.join(wrk, "th10_06.txt")
+    shutil.copyfile(src, dst)
+    before = open(dst, "rb").read()
+
+    breaks = {"\\v": "\x0b", "\\f": "\x0c", "\x1c": "\x1c", "\x1d": "\x1d", "\x1e": "\x1e",
+              "\x85": "\x85", "U+2028": "\u2028", "U+2029": "\u2029", "\\n": "\n", "\\r": "\r"}
+    allrej = True
+    for name, ch in breaks.items():
+        try:
+            m.linkurl.add_usertag(dst, "x" + ch + "abc")
+            allrej = False
+            ok(False, f"标签里的 {name} 应该被拒收")
+        except ValueError:
+            pass
+    ok(allrej, "标签里的各类换行符全部拒收(不会凭空多切出一行)")
+    ok(open(dst, "rb").read() == before, "被拒的标签没有改动曲谱文件(逐字节)")
+    for bad in ["a=b", "a,b", "a|b", "%x", "", "长" * 40]:
+        try:
+            m.linkurl.add_usertag(dst, bad); ok(False, f"非法标签 {bad!r} 应被拒")
+        except ValueError:
+            pass
+    try:
+        m.linkurl.parse_link("https://a.example.com/x\u2028link=https://evil.example.com")
+        ok(False, "URL 里塞换行+另一条 link= 应被拒")
+    except ValueError:
+        pass
+    # 正常标签: 既要写进去, 又不能动旋律
+    try:
+        r = m.linkurl.add_usertag(dst, "民歌")
+        ok(r in ("added", "exists"), f"正常标签写得进去({r})")
+        sys.path.insert(0, m.DB)
+        import score as _score
+        cwd = os.getcwd()
+        os.chdir(m.DB)                      # score.py 要读同目录的 tags.json
+        try:
+            s = _score.Score(dst); s.parse(); rec = s.to_record()
+        finally:
+            os.chdir(cwd)
+        n = sum(1 for sec in rec["sections"] for t in sec["score"].split() if t not in ("-", "|", "~"))
+        orig = open(src, encoding="utf-8").read().splitlines()
+        i0 = next((k for k, ln in enumerate(orig) if ln.strip().startswith("%--")), 0)
+        n0 = sum(1 for ln in orig[i0 + 1:] for t in ln.split()
+                 if t not in ("-", "|", "~", "%END"))
+        ok(n > 0 and n >= n0 - 2, f"写完标签后旋律没被吃掉(音高音 {n}, 原文件粗数 {n0})")
+    except Exception as e:
+        ok(False, f"正常标签写盘失败: {type(e).__name__}: {e}")
+
+
 def test_git_commit(m, tmp):
     """只提交本次投稿的文件, 且**必须包含未跟踪的新文件**(坑 2)。"""
     def run(*a, **kw):
@@ -180,6 +244,7 @@ def main():
         test_fields(m)
         test_normalize(m)
         test_unique_rid(m, fb)
+        test_write_into_score(m, tmp)
         test_git_commit(m, repo)
         if a.live:
             print()
