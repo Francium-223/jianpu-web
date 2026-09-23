@@ -22,9 +22,11 @@ const r = await fetch(BASE + '/data/songs.jsonl.gz');
 ok(r.ok, `/data/songs.jsonl.gz HTTP ${r.status} ${r.headers.get('content-type')}`);
 const text = gunzipSync(Buffer.from(await r.arrayBuffer())).toString('utf8');
 const lines = text.split('\n').filter((x) => x.trim());
-ok(lines.length === 7385, `索引 ${lines.length} 首(期望 7385)`);
+// 不写死曲数: 与同一个服务给出的 stats.json 对账(更严格 —— 数据与统计必须自洽)
+const st = await (await fetch(BASE + '/data/stats.json')).json();
+ok(lines.length === st.songs, `索引 ${lines.length} 首 == stats.json 的 ${st.songs} 首`);
 const idx = buildIndex(text);
-ok(idx && idx.songs && idx.songs.length === 7385, `buildIndex 成功: ${idx.songs.length} 首`);
+ok(idx && idx.songs && idx.songs.length === st.songs, `buildIndex 成功: ${idx.songs.length} 首`);
 
 // ③ 用前端代码查"人耳那句"与"原谱那句"
 for (const [q, want] of [['33565653253', '神々が恋した幻想郷'], ['63731232', '神々が恋した幻想郷']]) {
