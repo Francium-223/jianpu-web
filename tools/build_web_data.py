@@ -111,9 +111,13 @@ def main():
         })
 
     outj = os.path.join(a.out, "songs.jsonl.gz")
-    with gzip.open(outj, "wb", compresslevel=9) as g:
-        for r in rows:
-            g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+    # mtime=0: gzip 默认把**当前时间**写进 header, 于是内容一字没变、字节却每次都不同 ->
+    # 每跑一次 refresh, 仓库里就多一个毫无意义的 `data/songs.jsonl.gz` 改动
+    # (CI/作者还会把它提交进去)。固定 mtime 后同一份数据 = 同一串字节(实测两次跑字节一致)。
+    with open(outj, "wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as g:
+            for r in rows:
+                g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
     with gzip.open(os.path.join(a.out, "songs.jsonl"), "wb", compresslevel=0) as g:
         for r in rows:                        # 老浏览器回退(不压缩)
             g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
