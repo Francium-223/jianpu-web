@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,22 +92,23 @@ def save_link(payload, note="", contact=""):
     """人工补收录页: 校验(搜索页拒收) -> 留档 -> 写进 scores/<file>.txt -> git commit -> 后台重建。"""
     if linkurl is None:
         return 500, {"ok": False, "err": f"找不到 linkurl.py —— JIANPU_DB={DB} 对吗?"}
-    base = os.path.basename(payload.get("file") or "")
-    if not base or base != (payload.get("file") or "") or not base.endswith(".txt"):
+    raw = _as_text(payload.get("file"))
+    base = os.path.basename(raw)
+    if not base or base != raw or not base.endswith(".txt"):
         return 400, {"ok": False, "err": "文件名不合法"}
     path = os.path.join(DB, "scores", base)
     if not os.path.isfile(path):
         return 400, {"ok": False, "err": "语料里没有这份曲谱: " + base}
     # 留档(与其他投稿一致: 永远先存, 不怕后面失败)
     os.makedirs(FEEDBACK, exist_ok=True)
-    rid = time.strftime("%Y%m%d-%H%M%S") + "-link-" + _safe(base[:-4], 20)
+    rid = _unique_rid(time.strftime("%Y%m%d-%H%M%S") + "-link-" + _safe(base[:-4], 20))
     with io.open(os.path.join(FEEDBACK, rid + ".json"), "w", encoding="utf-8", newline="\n") as g:
         g.write(json.dumps({"id": rid, "kind": "link", "file": base,
-                            "url": payload.get("url") or "", "note": note, "contact": contact,
+                            "url": _as_text(payload.get("url")), "note": note, "contact": contact,
                             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                             "ip": payload.get("_ip", "")}, ensure_ascii=False, indent=2))
     try:
-        added, already = linkurl.add_to_score_file(path, payload.get("url") or "")
+        added, already = linkurl.add_to_score_file(path, _as_text(payload.get("url")))
     except ValueError as e:
         return 400, {"ok": False, "err": str(e)}
     except Exception as e:
@@ -115,7 +117,7 @@ def save_link(payload, note="", contact=""):
         return 200, {"ok": True, "file": base, "state": "已存在", "committed": False,
                      "refresh": False, "url": already}
     rel = os.path.join("scores", base)
-    rc, out = _git("commit", "-q", "-m", f"link: {base} —— 人工补收录页({len(added)} 条)", "--", rel)
+    rc, out = _git_commit(f"link: {base} —— 人工补收录页({len(added)} 条)", [rel])
     refresh, why = start_refresh()
     return 200, {"ok": True, "file": base, "state": "已写入", "committed": rc == 0,
                  "git": out[-300:] if rc else "", "url": added,
@@ -130,17 +132,18 @@ def save_tags(payload, note="", contact=""):
     """
     if linkurl is None:
         return 500, {"ok": False, "err": f"找不到 linkurl.py —— JIANPU_DB={DB} 对吗?"}
-    base = os.path.basename(payload.get("file") or "")
-    if not base or base != (payload.get("file") or "") or not base.endswith(".txt"):
+    rawf = _as_text(payload.get("file"))
+    base = os.path.basename(rawf)
+    if not base or base != rawf or not base.endswith(".txt"):
         return 400, {"ok": False, "err": "文件名不合法"}
     path = os.path.join(DB, "scores", base)
     if not os.path.isfile(path):
         return 400, {"ok": False, "err": "语料里没有这份曲谱: " + base}
-    raw_tags = [x.strip() for x in re.split(r"[,，、;；]+", payload.get("tags") or "") if x.strip()]
+    raw_tags = [x.strip() for x in re.split(r"[,，、;；]+", _as_text(payload.get("tags"))) if x.strip()]
     if not raw_tags:
         return 400, {"ok": False, "err": "标签是空的"}
     os.makedirs(FEEDBACK, exist_ok=True)
-    rid = time.strftime("%Y%m%d-%H%M%S") + "-tags-" + _safe(base[:-4], 20)
+    rid = _unique_rid(time.strftime("%Y%m%d-%H%M%S") + "-tags-" + _safe(base[:-4], 20))
     with io.open(os.path.join(FEEDBACK, rid + ".json"), "w", encoding="utf-8", newline="\n") as g:
         g.write(json.dumps({"id": rid, "kind": "tags", "file": base, "tags": raw_tags,
                             "note": note, "contact": contact,
@@ -159,11 +162,83 @@ def save_tags(payload, note="", contact=""):
         return 200, {"ok": True, "file": base, "state": "已存在", "committed": False,
                      "refresh": False, "tags": existed}
     rel = os.path.join("scores", base)
-    rc, out = _git("commit", "-q", "-m", f"tags: {base} —— 人工补标签({','.join(added)})", "--", rel)
+    rc, out = _git_commit(f"tags: {base} —— 人工补标签({','.join(added)})", [rel])
     refresh, why = start_refresh()
     return 200, {"ok": True, "file": base, "state": "已写入", "committed": rc == 0,
                  "git": out[-300:] if rc else "", "tags": added,
                  "refresh": refresh, "refresh_msg": why}
+
+
+def _as_text(v):
+    """客户端可能把字段送成 list(`{"tags":["民歌"]}`) -> 统一成字符串, 免得 re/字符串方法炸掉。"""
+    if isinstance(v, (list, tuple)):
+        return ",".join(str(x) for x in v)
+    return "" if v is None else str(v)
+
+
+def _unique_rid(base):
+    """留档 id 必须唯一: 同一秒内同类型同曲名的投稿会撞车, 否则前一份留档被后面的覆盖掉。"""
+    rid, n = base, 1
+    while os.path.exists(os.path.join(FEEDBACK, rid + ".json")):
+        n += 1
+        rid = f"{base}-{n}"
+    return rid
+
+
+def normalize_melody(score):
+    """用户粘来的简谱数字 -> (token 列表, 给用户看的警告)。**投稿入库的唯一入口用它**。
+
+    粘法五花八门, 归一化规则:
+        `63731232`    -> `6 3 7 3 1 2 3 2`    (数字之间补空格)
+        `6 3 7 3`     -> 不变                  ← 旧版只处理"整串没空格"的情况,
+        `6q3s7q1c`    -> `6q 3s 7q 1c`        所以手打了空格的 `63731232 1765` 被整串当
+        `1'2`         -> `1' 2`               非法 token **静默丢掉**(实测踩过)。
+        `6-7`/`1 2|3` -> `6 - 7` / `1 2 | 3`  (- | ~ 两侧留空)
+        `#4` `b7`     -> 不动                  (记号贴在数字前面, 是合法 token)
+    警告: 认不出的字符(汉字/英文/8/9…)会被丢掉, 必须明说, 否则用户以为整串都收下了。
+    """
+    raw = (score or "").strip()
+    if not raw:
+        return [], ""
+    src = re.sub(r"(?<=[0-9cqsdh'])(?=[0-9#b♯♭])", " ", raw)
+    src = re.sub(r"\s*([|~])\s*", r" \1 ", src)
+    src = re.sub(r"\s*-\s*", " - ", src)
+    toks = [t for t in src.split() if _is_note(t) or t in ("-", "|", "~")]
+    # 允许集 = jptok 的 token 字符集: 0-7 x cqsdh , ' # b ♯ ♭ . [ ] - | ~ 与空白。
+    junk = re.sub(r"[\s0-7xcqsdh,.'#b♯♭\-|~\[\]]", "", raw)
+    shown = junk[:12] + ("…" if len(junk) > 12 else "")
+    if len(toks) < 5:
+        warn = (f"只认出 {len(toks)} 个音符，没建成曲谱（认的写法：1-7/x/0、时值后缀 cqsdh、"
+                f"#b♯♭、八度撇、- | ~）")
+        if junk:
+            warn += f"；另有 {len(junk)} 个字符没认出来：{shown}"
+        return toks, warn + " —— 原文已留档，作者能看到。"
+    if junk:
+        return toks, (f"曲谱已入库，但有 {len(junk)} 个字符没认出来丢掉了：{shown}"
+                      f"（认的写法：1-7/x/0、时值后缀 cqsdh、#b♯♭、八度撇、- | ~）")
+    return toks, ""
+
+
+GIT_LOCK = threading.Lock()     # 投稿可能并发到达; git 的 index/index.lock 不是并发安全的
+
+
+def _git_commit(msg, rels, author="reader-submit"):
+    """**只**提交指定文件。
+
+    两个坑都在这:
+      1) 新文件必须显式 `git add`, 否则 `git commit -- <path>` 会报
+         "路径规格 ... 未匹配任何 Git 已知文件" 而**静默不提交**;
+      2) 提交时限定路径, 工作区别的脏文件(例如刚跑完 parse_scores 的重生成)不会被卷进这次提交。
+    """
+    with GIT_LOCK:
+        _git("add", "--", *rels)
+        rc, out = _git("-c", f"user.name={author}", "-c", "user.email=submit@local",
+                       "commit", "-q", "-m", msg, "--", *rels)
+        if rc != 0 and "index.lock" in out:        # 万一是外部进程正在动 git -> 等一下重试一次
+            time.sleep(1.5)
+            rc, out = _git("-c", f"user.name={author}", "-c", "user.email=submit@local",
+                           "commit", "-q", "-m", msg, "--", *rels)
+    return rc, out
 
 
 def _safe(s, n=80):
@@ -182,11 +257,11 @@ def _git(*args):
 
 def handle_submit(payload):
     """把投稿落盘并提交。返回 (http_status, dict)。"""
-    kind = (payload.get("kind") or "new").strip()
-    title = (payload.get("title") or "").strip()
-    score = (payload.get("score") or "").strip()
-    note = (payload.get("note") or "").strip()
-    contact = (payload.get("contact") or "").strip()
+    kind = _as_text(payload.get("kind")).strip() or "new"
+    title = _as_text(payload.get("title")).strip()
+    score = _as_text(payload.get("score")).strip()
+    note = _as_text(payload.get("note")).strip()
+    contact = _as_text(payload.get("contact")).strip()
     # ①a kind=link / kind=tags: 身份是**文件**而不是曲名 -> 不走"请填曲名"与建谱流程
     if kind == "link":
         return save_link(payload, note, contact)
@@ -195,55 +270,66 @@ def handle_submit(payload):
     if not title:
         return 400, {"ok": False, "err": "请填曲名"}
     ts = time.strftime("%Y%m%d-%H%M%S")
-    rid = f"{ts}-{_safe(title, 24)}"
+    rid = _unique_rid(f"{ts}-{_safe(title, 24)}")
 
     # ① 投稿原文留档(永远先存, 不怕后面失败)
     os.makedirs(FEEDBACK, exist_ok=True)
+    # kind=fix(纠错)时前端带上"要改的是哪一份" -> 留档, 作者一眼知道改哪份
+    # (只接受 scores/ 下的裸文件名, 防目录穿越)
+    target = _as_text(payload.get("file")).strip()
+    if target and (os.path.basename(target) != target or not target.endswith(".txt")):
+        target = ""
     rec = {"id": rid, "kind": kind, "title": title, "score": score, "note": note,
-           "contact": contact, "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "contact": contact, "target": target,
+           "time": time.strftime("%Y-%m-%d %H:%M:%S"),
            "ip": payload.get("_ip", "")}
     with io.open(os.path.join(FEEDBACK, rid + ".json"), "w", encoding="utf-8", newline="\n") as g:
         g.write(json.dumps(rec, ensure_ascii=False, indent=2))
 
     # ② 如果给了简谱数字 -> 直接生成一份曲谱进 scores/(反馈即入库)
-    #    **先归一化**: 用户习惯是一整串数字(`63731232`), 而 token 白名单是逐 token 匹配的
-    #    -> 粘在一起会被当"一个非法 token"整串丢掉(实测踩过: score_file 返回空)。
-    #    这里在**数字与记号之间**补空格: `63731232` -> `6 3 7 3 1 2 3 2`, 已有空格的保持原样。
     wrote_score = ""
-    src = score if " " in score.strip() else re.sub(r"\s*", " ", re.sub(r"([#b♯♭]?\d)", r" \1", score)).strip()
-    if " " not in score.strip() and score.strip():
-        src = " ".join(re.findall(r"[#b♯♭]?[0-9]", score))
-    toks = [t for t in src.split() if _is_note(t) or t in ("-", "|", "~")]
+    toks, score_warn = normalize_melody(score)
     if len(toks) >= 5:
         name = _safe(title, 60)
         p = os.path.join(DB, "scores", name + ".txt")
         if os.path.exists(p):
             p = os.path.join(DB, "scores", f"{name}_{ts[-6:]}.txt")
-        body = "\n".join([
+        _lines = [
             f"%{os.path.basename(p)}",
             f"title={title}",
             "tag=", "usertag=", "tagroute=",
             "transcriber=读者投稿", "status=ocr",
+            "todo=add tags",   # 语料惯例: 还没标签的谱子标这个, 补标签流程会挑出来
             f"% 投稿 {rid}" + (f" 联系 {contact}" if contact else ""),
             f"% 备注 {note}" if note else "% 备注 (无)",
+        ]
+        if target:
+            _lines.append(f"% 纠错目标 {target}")
+        _lines += [
             "source=user-submit",
             "%--", "4/4", "subtitle=score",
             " ".join(toks), "%END",
-        ]) + "\n"
+        ]
+        body = "\n".join(_lines) + "\n"
         with io.open(p, "w", encoding="utf-8", newline="\n") as g:
             g.write(body)
         wrote_score = os.path.basename(p)
 
     # ③ 本地 git 提交(不 push; push 由你/定时任务决定)
-    _git("add", "-A", "feedback", "scores")
     msg = f"submission: {kind} - {title}"
     if wrote_score:
         msg += f" (+scores/{wrote_score})"
-    rc, out = _git("-c", "user.name=reader-submit", "-c", "user.email=submit@local",
-                   "commit", "-q", "-m", msg)
+    rels = [os.path.join("feedback", rid + ".json")]
+    if wrote_score:
+        rels.append(os.path.join("scores", wrote_score))
+    rc, out = _git_commit(msg, rels)
     committed = (rc == 0)
-    return 200, {"ok": True, "id": rid, "score_file": wrote_score,
-                 "committed": committed, "git": out[-200:] if not committed else ""}
+    # 新谱进了 scores/ 只是"入库", 还要重建索引才能被搜到 -> 与补链接/补标签一致, 后台重建。
+    # 没有数字的纯反馈(fix/meta 只留档)不动语料, 不必重建。
+    refresh, why = (start_refresh() if wrote_score else (False, "未写入曲谱, 无需重建"))
+    return 200, {"ok": True, "id": rid, "score_file": wrote_score, "score_warn": score_warn,
+                 "committed": committed, "git": out[-200:] if not committed else "",
+                 "refresh": refresh, "refresh_msg": why}
 
 
 def resolve(path):

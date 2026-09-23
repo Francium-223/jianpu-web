@@ -275,6 +275,7 @@ function render(segs, res, ms) {
 
   var html = '';
   LAST = res[0].group;                 // 供"投稿"表单的「用刚才查询的曲名填入」
+  LASTFILE = (res[0].file && res[0].file[0]) || '';   // 纠错时告诉作者改哪一份
   for (var k = 0; k < res.length; k++) {
     var r = res[k];
     html += '<div class="card' + (k === 0 ? ' top' : '') + '">' +
@@ -403,7 +404,8 @@ document.addEventListener('click', function (ev) {
     b.disabled = false;
     if (j && j.ok) {
       msg.className = 'al-msg ok';
-      msg.textContent = '已写入 ' + j.file + (j.committed ? '（已 git commit）' : '（未提交）') +
+      msg.textContent = '已写入 ' + j.file +
+        (j.committed ? '（已 git commit）' : '（未提交：' + (j.git || '未知原因') + '）') +
         (j.refresh ? '；' + (j.refresh_msg || '索引重建中，约 2 分钟后刷新可见') : '');
       inp.value = '';
     } else {
@@ -427,15 +429,18 @@ for (var i = 0; i < exs.length; i++) {
 
 /* ---------- 投稿(不用登录, 不碰 GitHub) ---------- */
 var API = window.JIANPU_API || (location.protocol + '//' + location.host);   // 同源; 换服务器就设 window.JIANPU_API
-var LAST = '';
+var LAST = '', LASTFILE = '';   // 供「投稿」表单: 曲名 + 刚查的那一份曲谱文件
 
 function submit() {
   var t = $('stitle').value.trim();
   if (!t) { $('sstatus').className = 'status err'; $('sstatus').textContent = '请填曲名。'; return; }
+  var kind = $('skind').value;
   var body = {
-    kind: $('skind').value, title: t,
+    kind: kind, title: t,
     score: $('sscore').value.trim(), note: $('snote').value.trim(),
-    contact: $('scontact').value.trim()
+    contact: $('scontact').value.trim(),
+    // 纠错/元数据: 带上刚才查的那一份, 作者不用猜你说的是哪份
+    file: (kind === 'fix' || kind === 'meta') ? LASTFILE : ''
   };
   $('sstatus').className = 'status';
   $('sstatus').textContent = '提交中…';
@@ -447,7 +452,10 @@ function submit() {
       $('sgo').disabled = false;
       if (x.j && x.j.ok) {
         $('sstatus').textContent = '已收到，编号 ' + x.j.id +
-          (x.j.score_file ? '（已生成曲谱 ' + x.j.score_file + ' 入库）' : '（只留了投稿，没有数字）');
+          (x.j.score_file ? '（已生成曲谱 ' + x.j.score_file + ' 入库' +
+            (x.j.refresh ? '，索引重建中，约 2 分钟后可搜到' : '') + '）'
+            : '（只留了投稿，没有数字）') +
+          (x.j.score_warn ? '　⚠ ' + x.j.score_warn : '');
         $('stitle').value = ''; $('sscore').value = ''; $('snote').value = '';
       } else {
         $('sstatus').className = 'status err';
