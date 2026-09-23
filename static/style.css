@@ -1,56 +1,56 @@
-:root { --fg: #1f2328; --dim: #5b6570; --line: #e2e5e9; --bg: #fff; --accent: #0b62c4; }
+/* 简谱旋律查歌 —— 极简、克制; 结果卡用表格摊开全部元数据。 */
+:root { --fg: #1f2328; --dim: #57606a; --line: #e4e6ea; --accent: #0b62c4; }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
 body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", "Microsoft YaHei", sans-serif;
-       margin: 0; color: var(--fg); background: var(--bg); line-height: 1.65; font-size: 16px; }
-
-/* 居中: 外层负责居中, 内层负责限宽 —— 表格再宽也不会把页面撑偏 */
-.wrap { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-@media (max-width: 48rem) { .wrap { padding: 1.25rem .9rem 3rem; } }
-
-h1 { font-size: 1.45rem; margin: 0 0 .5rem; letter-spacing: .01em; }
-h2 { font-size: 1rem; margin: 2rem 0 .5rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
-p { margin: .5rem 0; }
+       margin: 0; color: var(--fg); background: #fff; line-height: 1.65; font-size: 16px; }
+.wrap { max-width: 52rem; margin: 0 auto; padding: 1.75rem 1.1rem 4rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .45rem; }
+h2 { font-size: 1rem; margin: 1.8rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+p { margin: .45rem 0; }
 .lead { color: var(--dim); }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; background: #f3f4f6; padding: .08em .33em; border-radius: 3px; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; background: #f4f5f7; padding: .08em .3em; border-radius: 3px; }
 
-form { margin: 1.1rem 0 .5rem; }
-input[type=text] { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem;
-  padding: .5rem .65rem; width: min(30rem, 100%); border: 1px solid #c6ccd4; border-radius: 6px; }
+form { margin: 1rem 0 .5rem; }
+input[type=text] { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.02rem;
+  padding: .5rem .6rem; width: min(28rem, 100%); border: 1px solid #c6ccd4; border-radius: 6px; }
 input[type=text]:focus { outline: 2px solid #bcd7f5; border-color: #7fb0e8; }
-button { font: inherit; padding: .5rem 1.15rem; border: 1px solid var(--accent); background: var(--accent);
-  color: #fff; border-radius: 6px; cursor: pointer; }
-button:hover { background: #0a56ad; }
+select, button { font: inherit; padding: .42rem .8rem; border-radius: 6px; border: 1px solid #c6ccd4; background: #fff; }
+button[type=submit], #go { background: var(--accent); border-color: var(--accent); color: #fff; cursor: pointer; }
+button:hover { filter: brightness(.97); }
 button:disabled { opacity: .55; cursor: default; }
-.examples { color: var(--dim); font-size: .92rem; }
-.examples a { margin-right: .8rem; white-space: nowrap; }
-.status { margin: 1.1rem 0 .2rem; color: var(--dim); font-size: .92rem; }
+.examples { color: var(--dim); font-size: .9rem; }
+.examples a { margin-right: .7rem; white-space: nowrap; }
+.status { margin: 1rem 0 .2rem; color: var(--dim); font-size: .9rem; }
 .status.err { color: #b42318; }
 
-/* 结果卡: 每首一张卡, 不再用宽表格 —— 表格是"没居中"的元凶 */
-.card { border: 1px solid var(--line); border-radius: 8px; padding: .8rem 1rem; margin: .7rem 0; }
-.card.top { border-color: #9fd3b4; background: #f6fdf8; }
-.head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: .85rem 1rem; margin: .8rem 0; }
+.card.top { border-color: #a7d7bb; background: #f7fdf9; }
+.head { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; }
 .rank { color: var(--dim); font-size: .85rem; }
-.title { font-size: 1.1rem; font-weight: 650; }
+.title { font-size: 1.08rem; font-weight: 650; }
 .badge { font-size: .78rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
 .cost { font-variant-numeric: tabular-nums; font-weight: 650; }
 .cost.c0 { color: #177245; } .cost.c1 { color: #946200; } .cost.c2 { color: #b42318; }
-.meta { color: var(--dim); font-size: .88rem; margin-top: .15rem; }
-.cmp { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9rem; margin-top: .45rem; color: #3a4149; }
-.cmp .lab { color: var(--dim); font-family: system-ui, sans-serif; font-size: .85rem; }
-.score { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92rem; margin-top: .35rem;
-  color: #384049; word-break: break-all; max-height: 9.5rem; overflow: auto; padding: .35rem .5rem;
+
+/* 元数据全摊开 */
+table.meta { border-collapse: collapse; margin: .5rem 0 .2rem; font-size: .88rem; width: 100%; }
+table.meta th { text-align: left; font-weight: 500; color: var(--dim); padding: .1rem .6rem .1rem 0;
+  white-space: nowrap; vertical-align: top; width: 4.5em; }
+table.meta td { padding: .1rem 0; vertical-align: top; word-break: break-word; }
+
+.cmp { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .88rem; margin-top: .5rem; color: #3a4149; }
+.cmp .lab { color: var(--dim); font-family: system-ui, sans-serif; font-size: .84rem; }
+.score { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9rem; margin-top: .35rem;
+  color: #384049; word-break: break-all; max-height: 10rem; overflow: auto; padding: .4rem .55rem;
   background: #fafbfc; border: 1px solid var(--line); border-radius: 5px; }
 .score mark { background: #ffe58f; font-weight: 700; color: #111; padding: 0 1px; border-radius: 2px; }
-.links { margin-top: .5rem; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
-.links a { font-size: .85rem; border: 1px solid var(--line); border-radius: 999px; padding: .12rem .6rem; }
+.score .bar { color: #9aa4b2; margin: 0 .15em; }
+.links { margin-top: .55rem; display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; }
+.links a { font-size: .84rem; border: 1px solid var(--line); border-radius: 999px; padding: .1rem .55rem; }
 .links a:hover { border-color: var(--accent); text-decoration: none; }
-.links .add { border-color: #c6ccd4; color: var(--dim); }
-.links .add:hover { border-color: var(--accent); color: var(--accent); }
-.hint { color: var(--dim); font-size: .85rem; margin-top: .5rem; }
-footer { color: var(--dim); font-size: .85rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }
-
-.score .bar { color: #98a2b3; font-weight: 400; margin: 0 .15em; }
+.links .add { color: var(--dim); }
+.links .add:hover { color: var(--accent); }
+.hint { color: var(--dim); font-size: .85rem; margin-top: .6rem; }
+footer { color: #6b7280; font-size: .84rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }

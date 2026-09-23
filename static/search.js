@@ -29,6 +29,9 @@ export function buildIndex(text) {
     songs.push({
       title: r.t, group: r.g, source: r.s, status: r.st, n: r.n,
       p: r.p, a: r.a || '', o: r.o || '', raw: r.raw || '', trunc: !!r.trunc,
+      bars: r.bars || [], bpb: r.bpb || 4,
+      file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
+      alias: r.alias || [], transcriber: r.transcriber || [],
     });
   }
   const groups = new Map();
@@ -121,7 +124,9 @@ export function search(idx, segs, opt) {
     return {
       title: h.song.title, group: r.group, source: h.song.source, status: h.song.status,
       n: h.song.n, cost: r.total, exact: r.exact, qlen: n, at: h.at,
-      raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars,
+      raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars, bpb: h.song.bpb,
+      file: h.song.file, tags: h.song.tags, usertags: h.song.usertags,
+      alias: h.song.alias, transcriber: h.song.transcriber, mbid: h.song.mbid,
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
     };

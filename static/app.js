@@ -145,7 +145,7 @@ function render(segs, res, ms) {
         '<span class="badge">' + r.n + ' 音符</span>' +
         '<span class="badge">' + esc(r.status || '?') + '</span>' +
       '</div>' +
-      '<div class="meta">出处 ' + (r.source ? esc(r.source) : '—') + '</div>' +
+      metaRows(r) +
       '<div class="cmp"><span class="lab">库内该段</span> ' + esc(show(r.libNotes)) +
         '　<span class="lab">你的输入</span> ' + esc(show(r.qNotes)) + '</div>' +
       '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +

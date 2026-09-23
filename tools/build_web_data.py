@@ -85,6 +85,12 @@ def main():
             # **按音符序号而非 token 序号**, 前端在音符流里对应位置插 `|`。
             "bars": [int(x) for x in (r.get("bars") or []) if isinstance(x, int)],
             "bpb": float(r.get("beats_per_bar") or 4.0),
+            # 其余元数据一并带出(用户要求: 前端不光标题, 别的元数据也都摊开)
+            "file": r.get("file") or [],
+            "tags": r.get("tag") or [],
+            "usertags": r.get("usertag") or [],
+            "alias": r.get("alias") or [],
+            "transcriber": r.get("transcriber") or [],
         })
 
     outj = os.path.join(a.out, "songs.jsonl.gz")
