@@ -122,6 +122,50 @@ def save_link(payload, note="", contact=""):
                  "refresh": refresh, "refresh_msg": why}
 
 
+def save_tags(payload, note="", contact=""):
+    """人工补标签: 校验 -> 留档 -> 写进 scores/<file>.txt 的 usertag -> git commit -> 后台重建。
+
+    与 save_link 同一个套路; 写入实现在 jianpu-db/linkurl.py:add_usertag(唯一一份)。
+    只有**分类标签**(`分类/…`)才顺带清掉 `todo=add tags` —— 只补了歌手的话那首仍然缺分类。
+    """
+    if linkurl is None:
+        return 500, {"ok": False, "err": f"找不到 linkurl.py —— JIANPU_DB={DB} 对吗?"}
+    base = os.path.basename(payload.get("file") or "")
+    if not base or base != (payload.get("file") or "") or not base.endswith(".txt"):
+        return 400, {"ok": False, "err": "文件名不合法"}
+    path = os.path.join(DB, "scores", base)
+    if not os.path.isfile(path):
+        return 400, {"ok": False, "err": "语料里没有这份曲谱: " + base}
+    raw_tags = [x.strip() for x in re.split(r"[,，、;；]+", payload.get("tags") or "") if x.strip()]
+    if not raw_tags:
+        return 400, {"ok": False, "err": "标签是空的"}
+    os.makedirs(FEEDBACK, exist_ok=True)
+    rid = time.strftime("%Y%m%d-%H%M%S") + "-tags-" + _safe(base[:-4], 20)
+    with io.open(os.path.join(FEEDBACK, rid + ".json"), "w", encoding="utf-8", newline="\n") as g:
+        g.write(json.dumps({"id": rid, "kind": "tags", "file": base, "tags": raw_tags,
+                            "note": note, "contact": contact,
+                            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "ip": payload.get("_ip", "")}, ensure_ascii=False, indent=2))
+    added, existed = [], []
+    for t in raw_tags:
+        try:
+            r = linkurl.add_usertag(path, t, clear_todo=t.startswith("分类/"))
+        except ValueError as e:
+            return 400, {"ok": False, "err": str(e), "added": added}
+        except Exception as e:
+            return 500, {"ok": False, "err": f"{type(e).__name__}: {e}", "added": added}
+        (added if r == "added" else existed).append(t)
+    if not added:
+        return 200, {"ok": True, "file": base, "state": "已存在", "committed": False,
+                     "refresh": False, "tags": existed}
+    rel = os.path.join("scores", base)
+    rc, out = _git("commit", "-q", "-m", f"tags: {base} —— 人工补标签({','.join(added)})", "--", rel)
+    refresh, why = start_refresh()
+    return 200, {"ok": True, "file": base, "state": "已写入", "committed": rc == 0,
+                 "git": out[-300:] if rc else "", "tags": added,
+                 "refresh": refresh, "refresh_msg": why}
+
+
 def _safe(s, n=80):
     s = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", str(s or "")).strip()
     return (s[:n] or "untitled")
@@ -143,9 +187,11 @@ def handle_submit(payload):
     score = (payload.get("score") or "").strip()
     note = (payload.get("note") or "").strip()
     contact = (payload.get("contact") or "").strip()
-    # ①a kind=link(「＋ 补收录页」): 身份是**文件**而不是曲名 -> 不走"请填曲名"与建谱流程
+    # ①a kind=link / kind=tags: 身份是**文件**而不是曲名 -> 不走"请填曲名"与建谱流程
     if kind == "link":
         return save_link(payload, note, contact)
+    if kind == "tags":
+        return save_tags(payload, note, contact)
     if not title:
         return 400, {"ok": False, "err": "请填曲名"}
     ts = time.strftime("%Y%m%d-%H%M%S")

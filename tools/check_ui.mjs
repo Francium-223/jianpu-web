@@ -76,9 +76,14 @@ if (th) {
   ok(mkEl('tstatus').textContent.includes('命中'), '按曲名找到了: ' + mkEl('tstatus').textContent.slice(0, 60));
   ok(/class="card/.test(tout), '按曲名结果渲染出了卡片');
   for (const [name, re] of [['收录页行', /class="lab">收录页/], ['待补充或精确链接', /(class="exact"|待补充)/],
-                            ['补收录页表单', /class="addlink"/]]) {
+                            ['补收录页表单', /class="addlink"/], ['补标签表单', /class="al-go-tags"/]]) {
     ok(re.test(tout), '按曲名卡片里有「' + name + '」');
   }
 }
+// 标签词表(<datalist> 在页面里, 不在卡片 HTML 里) —— 检查它真的被语料词表灌满了
+const tl = mkEl('taglist');
+const nopt = (tl.innerHTML.match(/<option/g) || []).length;
+ok(nopt > 50, '#taglist 已灌入语料标签词表(' + nopt + ' 个)');
+
 console.log(fail === 0 ? '\nUI 渲染自检 通过' : `\nUI 渲染自检 失败 ${fail} 项`);
 process.exitCode = fail ? 1 : 0;

@@ -120,6 +120,33 @@ function addLinkForm(r) {
     '<span class="al-msg"></span></details>';
 }
 
+/* 「＋ 补标签」: 人工给某一首加标签 —— 与「＋ 补收录页」同一套路(服务端写进曲谱 + 重建索引)。
+ * 分类用「分类/儿歌」这种既有约定; 输入框挂了 <datalist id="taglist"> 提示语料里已有的词表。 */
+function addTagForm(r) {
+  var f = (r.file && r.file[0]) || '';
+  if (!f) return '';
+  return '<details class="addlink"><summary>＋ 补标签</summary>' +
+    '<p class="hint">给这首加标签（多个用逗号）。分类写「分类/儿歌」「分类/民歌」这种；' +
+    '歌手直接写名字（如「邓丽君」）。输入时会提示语料里已有的标签。</p>' +
+    '<input class="al-url at-tags" list="taglist" placeholder="分类/儿歌, 邓丽君" spellcheck="false" />' +
+    '<button class="al-go-tags" data-file="' + esc(f) + '">保存</button>' +
+    '<span class="al-msg"></span></details>';
+}
+
+/* 把语料里已有的标签灌进 <datalist id="taglist">, 让补标签时口径一致 */
+function fillTagList() {
+  var dl = $('taglist');
+  if (!dl || !IDX) return;
+  var set = {};
+  for (var i = 0; i < IDX.songs.length; i++) {
+    (IDX.songs[i].tags || []).forEach(function (t) { set[t] = 1; });
+    (IDX.songs[i].usertags || []).forEach(function (t) { set[t] = 1; });
+  }
+  dl.innerHTML = Object.keys(set).sort().map(function (t) {
+    return '<option value="' + esc(t) + '"></option>';
+  }).join('');
+}
+
 /* 「＋ 库里没有这首」: 预填一个 GitHub Issue 表单, 点一下就能提(用户自己确认后提交) */
 function issueUrl(text) {
   return 'https://github.com/' + REPO + '/issues/new?title=' +
@@ -266,7 +293,7 @@ function render(segs, res, ms) {
       '<div class="links">' +
         '<span class="lab">收录页</span> ' + exactLinks(r) +
         '<span class="find"><span class="lab">去找这一页</span> ' + searchLinks(r) + '</span>' +
-        addLinkForm(r) +
+        addLinkForm(r) + addTagForm(r) +
         '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener" ' +
         'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +
       '</div></div>';
@@ -316,7 +343,7 @@ function renderTitle(list, q) {
       '</div>' + metaRows(x) +
       '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x) +
         '<span class="find"><span class="lab">去找这一页</span> ' + searchLinks(x) + '</span>' +
-        addLinkForm(x) + '</div>' +
+        addLinkForm(x) + addTagForm(x) + '</div>' +
       (x.raw ? '<div class="score">' + esc(x.raw) + '</div>' : '') +
       '</div>';
   }
@@ -333,6 +360,32 @@ if ($('tform')) {
 /* 「＋ 补收录页」的保存: 走已有投稿接口 -> 服务端校验后把 link=<url> 写进 scores/<file>.txt
  * 并 git commit, 再重建索引。返回值里的 file/commit/refresh 用来给用户回话。 */
 document.addEventListener('click', function (ev) {
+  // 「＋ 补标签」
+  var tb = ev.target && ev.target.closest ? ev.target.closest('.al-go-tags') : null;
+  if (tb) {
+    var tbox = tb.closest('.addlink');
+    var tin = tbox.querySelector('.at-tags');
+    var tmsg = tbox.querySelector('.al-msg');
+    var tags = (tin.value || '').trim();
+    if (!tags) { tmsg.className = 'al-msg err'; tmsg.textContent = '先填标签'; return; }
+    tb.disabled = true; tmsg.className = 'al-msg'; tmsg.textContent = '保存中…';
+    fetch(API + '/api/submit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'tags', file: tb.getAttribute('data-file'), tags: tags }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      tb.disabled = false;
+      if (j && j.ok) {
+        tmsg.className = 'al-msg ok';
+        tmsg.textContent = '已写入 ' + (j.tags || []).join('、') + '（' + j.state + '）' +
+          (j.refresh ? '；' + (j.refresh_msg || '索引重建中') : '');
+        tin.value = '';
+      } else {
+        tmsg.className = 'al-msg err';
+        tmsg.textContent = '失败：' + ((j && j.err) || '未知错误');
+      }
+    }).catch(function (e) { tb.disabled = false; tmsg.className = 'al-msg err'; tmsg.textContent = '失败：' + e.message; });
+    return;
+  }
   var b = ev.target && ev.target.closest ? ev.target.closest('.al-go') : null;
   if (!b) return;
   var box = b.closest('.addlink');
@@ -424,6 +477,7 @@ loadCorpus().then(function (txt) {
   $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 个曲名组），' +
     st.notes.toLocaleString() + ' 个音符，含变音记号 ' + st.with_accidental + ' 首。';
   $('status').textContent = '就绪，共 ' + IDX.count + ' 首。';
+  fillTagList();
   $('q').focus();
 }).catch(function (err) {
   $('status').className = 'status err';
