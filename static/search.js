@@ -35,6 +35,7 @@ export function buildIndex(text) {
       bars: r.bars || [], bpb: r.bpb || 4,
       file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
       alias: r.alias || [], artist: r.artist || [], transcriber: r.transcriber || [],
+      hot: r.hot || 0,               // 知名度代理(该曲歌手/标签在语料里的谱数, 见 build_web_data.py)
       // ⚠ 这几个以前漏在这里 -> 索引里明明有, 结果卡上永远看不到(同一类"白名单丢字段"):
       //   mbid  = MusicBrainz 录音页; links = 人工补的收录页; srcurl = 原谱站核对过的确切页
       mbid: r.mbid || '', links: r.links || [], srcurl: r.srcurl || '',
@@ -45,6 +46,14 @@ export function buildIndex(text) {
     if (!groups.has(s.group)) groups.set(s.group, []);
     groups.get(s.group).push(s);
   }
+  // 知名度代理(按**曲名组**取组内最大, 与 pop 同一层): 并列时的第一顺位。
+  // 值来自 build_web_data.py 的 hot 字段(该曲歌手/标签在语料里的谱数)。
+  const hot = new Map();
+  for (const [g, v] of groups) {
+    let m = 0;
+    for (const s of v) if ((s.hot || 0) > m) m = s.hot || 0;
+    hot.set(g, m);
+  }
   const pop = new Map();
   for (const [g, v] of groups) {
     const k = popKey(g);
@@ -53,7 +62,7 @@ export function buildIndex(text) {
   // 每谱一页: id -> 那一首。**按 id 查表**, 前端不重算 id(口径只有 build_web_data.py 一处)
   const byId = new Map();
   for (const s of songs) if (s.id && !byId.has(s.id)) byId.set(s.id, s);
-  return { songs, groups, pop, byId, count: songs.length, groupCount: groups.size };
+  return { songs, groups, pop, hot, byId, count: songs.length, groupCount: groups.size };
 }
 
 /** 每首歌把 p/a/o 三级数组缓存到对象上(第一次访问时构建) */
@@ -123,6 +132,7 @@ export function search(idx, segs, opt) {
     x.total - y.total ||
     y.exact - x.exact ||
     (idx.pop.get(popKey(y.group)) || 0) - (idx.pop.get(popKey(x.group)) || 0) ||
+    (idx.hot.get(y.group) || 0) - (idx.hot.get(x.group) || 0) ||   // 并列: 歌手在库里谱多的先
     (BAD.test(x.group) ? 1 : 0) - (BAD.test(y.group) ? 1 : 0) ||
     x.group.length - y.group.length ||
     (x.group < y.group ? -1 : 1));
@@ -139,6 +149,7 @@ export function search(idx, segs, opt) {
       file: h.song.file, tags: h.song.tags, usertags: h.song.usertags,
       alias: h.song.alias, artist: h.song.artist, transcriber: h.song.transcriber, mbid: h.song.mbid,
       links: h.song.links || [], srcurl: h.song.srcurl || '',
+      hot: idx.hot.get(r.group) || 0,
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
     };

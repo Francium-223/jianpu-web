@@ -102,6 +102,23 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
+    # 知名度代理 `hot`: 这一首的 artist/tag(不含「分类/…」) 里, 某个名字在**语料里出现的次数**取最大。
+    # 为什么需要: 纯数字串命中两首时, 原来的并列规则(名短优先 / 八度记号少优先)都跟"这是哪首歌"没关系
+    # —— 用户实测 `66561232123` 正确答案是《最炫民族风》(凤凰传奇, 库里 68 首), 却被判给了《时光》
+    # (无歌手信息, 库里 0 首)。榜单/热度这类外部数据我们没有, 但"这位歌手在语料里有多少首"是本库自带的、
+    # 且与知名度强相关(邓丽君 544、阎维文 382 …)。口径与 skills/jianpu-melody-lookup/lookup.py、
+    # tools/melody_search.py 一致(三处公式必须一样)。
+    hotmap = {}
+    for _ln in io.open(a.data, encoding="utf-8"):
+        _ln = _ln.strip()
+        if not _ln:
+            continue
+        try:
+            _r = json.loads(_ln)
+        except ValueError:
+            continue
+        for _n in list(_r.get("artist") or []) + [t for t in (_r.get("tag") or []) if not str(t).startswith("分类/")]:
+            hotmap[_n] = hotmap.get(_n, 0) + 1
     rows, srcs, notes, used = [], {}, 0, set()
     # 原谱站的**确切页面**: 由 jianpu2/tools/verify_source_urls.py 逐条抓取核对后写下的映射
     # (source 里只有 `qupu123-300587` 这种 ID; 这里把它换成那一页的真实 URL)
@@ -162,6 +179,10 @@ def main():
             "alias": r.get("alias") or [],
             # 歌手(独立字段, 2026-09-24): 通用曲名靠它区分谁是谁
             "artist": r.get("artist") or [],
+            # 知名度代理(见上面 hotmap 的说明): 并列时的第一顺位
+            "hot": max([hotmap.get(x, 0) for x in
+                        list(r.get("artist") or []) + [t for t in (r.get("tag") or []) if not str(t).startswith("分类/")]]
+                       or [0]),
             "transcriber": r.get("transcriber") or [],
         })
 
