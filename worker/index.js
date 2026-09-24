@@ -3,6 +3,8 @@
  *
  * 同一个域名下三类请求:
  *   /img/<相对工作区的路径>   → R2 桶里的原图（原图 5GB, 进不了仓库也进不了 Worker; R2 免费 10GB）
+ *                              R2 里没有 / 没绑桶时, 如果配了 IMG_UPSTREAM, 就**反代回本机**取
+ *                              —— 于是"不想开 R2 / 桶还没建"也能先把站点跑起来（代价: 原图走家里上行）
  *   /api/*                    → **反向代理**到本机的 app/server.py（要配 API_UPSTREAM）
  *   其它（/、/static/*、/data/*、/s/<id>）
  *                             → env.ASSETS（构建产物 dist/）; 找不到的路径由
@@ -35,7 +37,8 @@ export default {
     }
     if (path.startsWith('/api/')) {
       if (path === '/api/health') {
-        return json({ ok: true, deploy: 'cloudflare-worker', images: 'r2',
+        return json({ ok: true, deploy: 'cloudflare-worker',
+                      images: env.IMAGES ? 'r2' : (env.IMG_UPSTREAM ? 'proxy' : 'none'),
                       api: !!env.API_UPSTREAM, upstream: env.API_UPSTREAM || null });
       }
       return proxyApi(request, env, url);
@@ -70,16 +73,21 @@ async function serveImage(request, env, url) {
   if (bad(keys[0]) || !IMG_EXT.has(ext)) {
     return new Response('bad path', { status: 404 });
   }
-  if (!env.IMAGES) {
-    return new Response('R2 桶没绑定(见 wrangler.jsonc 的 r2_buckets)', { status: 503 });
-  }
   let obj = null;
-  for (const k of keys) {
-    obj = await env.IMAGES.get(k);
-    if (obj) break;
+  if (env.IMAGES) {
+    for (const k of keys) {
+      obj = await env.IMAGES.get(k);
+      if (obj) break;
+    }
   }
   if (!obj) {
-    return new Response('not found', { status: 404 });
+    // 没绑 R2 / 桶里没有 -> 兜底反代回本机（不需要 R2 也能看图）
+    if (env.IMG_UPSTREAM) {
+      return proxyFetch(request, env, env.IMG_UPSTREAM.replace(/\/+$/, '') + url.pathname + url.search);
+    }
+    return new Response(env.IMAGES ? 'not found'
+                                   : 'R2 桶没绑定, 也没配 IMG_UPSTREAM(见 wrangler.jsonc)',
+                        { status: env.IMAGES ? 404 : 503 });
   }
   const h = new Headers();
   obj.writeHttpMetadata(h);
@@ -98,6 +106,11 @@ async function proxyApi(request, env, url) {
     return json({ ok: false, err: '这台部署没有配投稿后端: 投稿要在作者本机的服务上跑' +
                                   '（wrangler secret put API_UPSTREAM / API_TOKEN）' }, 503);
   }
+  return proxyFetch(request, env, upstream + url.pathname + url.search);
+}
+
+/** 把请求原样转给本机服务（/api/* 与"R2 里没有的原图"共用这一条）。 */
+async function proxyFetch(request, env, target) {
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('cf-connecting-ip');
@@ -111,9 +124,9 @@ async function proxyApi(request, env, url) {
   }
   let res;
   try {
-    res = await fetch(upstream + url.pathname + url.search, init);
+    res = await fetch(target, init);
   } catch (e) {
-    return json({ ok: false, err: '连不上投稿后端（本机服务没开? 隧道断了?）: ' + e.message }, 502);
+    return json({ ok: false, err: '连不上本机后端（服务没开? 隧道断了?）: ' + e.message }, 502);
   }
   const out = new Headers(res.headers);
   out.set('Access-Control-Allow-Origin', '*');
