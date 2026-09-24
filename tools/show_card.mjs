@@ -89,14 +89,13 @@ if (process.env.SHOW_TUNE) {
     console.log(`\n【每谱一页 /s/${id}】  ${t.length} 字节 HTML`);
     console.log('  标题：' + ((t.match(/class="tune-h1">([^<]*)/) || [])[1] || '?'));
     console.log('  副行：' + ((t.match(/class="tune-sub">([\s\S]*?)<\/p>/) || [])[1] || '').replace(/<[^>]+>/g, '').trim());
-    const figs = [...t.matchAll(/<img src="([^"]+)" width="(\d+)" height="(\d+)"/g)];
-    if (figs.length) {
-      console.log('  原图：' + figs.length + ' 页');
-      figs.forEach((m, i) => console.log(`    第${i + 1}页 ${m[2]}x${m[3]}  ${decodeURIComponent(m[1]).slice(0, 100)}`));
-      const alt = (t.match(/<p class="hint">另有：([\s\S]*?)<\/p>/) || [])[1];
-      if (alt) console.log('  另有：' + alt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160));
+    const sheet = (t.match(/<pre class="sheet">([\s\S]*?)<\/pre>/) || [])[1] || '';
+    if (sheet) {
+      const lines = sheet.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').split('\n');
+      console.log('  原谱原文(verbatim): ' + lines.length + ' 行, 前 3 行:');
+      lines.slice(0, 3).forEach((l) => console.log('    | ' + l));
     } else {
-      console.log('  原图：这首盘上没有存的扫描件');
+      console.log('  原谱原文: (缺)');
     }
     const lk = (t.match(/class="lab">收录页<\/span>([\s\S]*?)<span class="alrow"/) || [])[1] || '';
     let line = '';

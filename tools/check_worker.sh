@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# 把 Cloudflare Worker **真跑一遍**（wrangler dev --local = 真 workerd + 本地 R2）：
-#   静态资源 / `/s/<id>` 深链回退 / `/img/*` 从 R2 取图 / 越界不泄露 / 没配后端时投稿的提示。
+# 把 Cloudflare **部署形态**真跑一遍（wrangler dev --local = 真 workerd + 本地 R2）：
+#   静态资源(带内容哈希) / `/s/<id>` 深链回退 / `/img/*` 的三种可能 / 越界不泄露 / 投稿提示。
 # 为什么值得单列: 部署到 Cloudflare 之前, 这些路径在本机就能验; 不然只能"推上去看运气"。
+#
+#  ⚠ 这里按**线上实际在跑的样子**构建: `--link-only`（用户口径 2026-09-24: 线上不转存扫描件,
+#    谱页只给"去原站看这一页"的按钮）。所以除非 wrangler.jsonc 里绑了 R2 或配了 IMG_UPSTREAM,
+#    `/img/*` 的**正确**行为是 503 + 说清两条路, 而不是 200。
 #
 #     bash tools/check_worker.sh          # 没装 wrangler 就跳过（npm install 一下就有）
 #     PORT=8899 bash tools/check_worker.sh
@@ -41,14 +45,21 @@ for i in $(seq 1 60); do
   sleep 1
 done
 grep -q "Ready on" "$LOG" || { echo "!! 等不到 Ready:"; tail -5 "$LOG"; exit 1; }
-echo "wrangler dev 就绪 (:$PORT), dist 已重建"
+echo "wrangler dev 就绪 (:$PORT), dist 已按链接模式重建"
 
 code() { curl -s -m 20 -o /tmp/_cw.out -w '%{http_code}' "http://127.0.0.1:$PORT$1"; }
 
 echo "--- 静态资源与深链 ---"
-for p in "/" "/static/app.js" "/static/style.css" "/data/songs.jsonl.gz" "/data/stats.json"; do
+# 静态资源名带内容哈希, 得从 index.html 里读出来(别写死 app.js)
+APPJS="$(grep -o 'static/app\.[a-f0-9]*\.js' dist/index.html | head -1)"
+STYLECSS="$(grep -o 'static/style\.[a-f0-9]*\.css' dist/index.html | head -1)"
+ok "$([ -n "$APPJS" ] && [ -n "$STYLECSS" ] && echo 1 || echo 0)" \
+   "index.html 引用了带哈希的静态资源 ($APPJS / $STYLECSS)"
+for p in "/" "/$APPJS" "/$STYLECSS" "/data/songs.jsonl.gz" "/data/stats.json"; do
   c=$(code "$p"); ok "$([ "$c" = 200 ] && echo 1 || echo 0)" "$p -> $c"
 done
+ok "$([ ! -f dist/data/images.jsonl.gz ] && echo 1 || echo 0)" \
+   "dist 不带图索引(前端不显示原图, 省 0.5MB)"
 c=$(code "/s/qupu123-313063")
 grep -q 'id="tune"' /tmp/_cw.out && ok 1 "/s/<id> 深链 -> $c 且是 index.html（SPA 回退生效）" \
                                 || ok 0 "/s/<id> 深链没有回退到 index.html"
@@ -63,11 +74,14 @@ c=$(curl -s -m 20 -o /tmp/_cw.out -w '%{http_code}' -X POST -H 'Content-Type: ap
 
 echo "--- 越界 / 非图 ---"
 c=$(code "/img/%2e%2e/wrangler.jsonc")
-grep -q r2_buckets /tmp/_cw.out && ok 0 "越界路径泄露了配置文件!" || ok 1 "越界路径没泄露配置（$c, URL 规范化后走 SPA 回退）"
+grep -q r2_buckets /tmp/_cw.out && ok 0 "越界路径泄露了配置文件!" \
+  || ok 1 "越界路径没泄露配置（$c, URL 规范化后走 SPA 回退）"
 c=$(code "/img/images/x.txt"); ok "$([ "$c" = 404 ] && echo 1 || echo 0)" "非图扩展名 -> $c"
 
-echo "--- /img/* 从 R2 取图（把样本两页传进本地桶） ---"
-read -r S D F1 F2 < <(python3 - <<'PY'
+echo "--- /img/*: 按当前绑定情况验（没绑 R2 也没配兜底时, 503+说清两条路才对） ---"
+IMG_STATE=$(curl -s -m 20 "http://127.0.0.1:$PORT/api/health" | grep -o '"images":"[a-z]*"' | cut -d'"' -f4)
+echo "   /api/health 报告图片来源: ${IMG_STATE:-未知}"
+python3 - <<'PY' > /tmp/_cw_sample.txt
 import gzip, json
 imgs = {}
 for ln in gzip.open('data/images.jsonl.gz', 'rt', encoding='utf-8'):
@@ -78,9 +92,15 @@ for ln in gzip.open('data/songs.jsonl.gz', 'rt', encoding='utf-8'):
     if s in imgs and len(imgs[s]['pg']) >= 2 and not imgs[s]['drv']:
         print(s, imgs[s]['d'], imgs[s]['pg'][0][0], imgs[s]['pg'][1][0]); break
 PY
-)
+read -r S D F1 F2 < /tmp/_cw_sample.txt
 if [ -z "${D:-}" ]; then
   ok 0 "挑不出有原图的样本"
+elif [ "$IMG_STATE" = "none" ]; then
+  Q=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$D/$F1")
+  c=$(code "/img/$Q")
+  [ "$c" = 503 ] && grep -q 'IMG_UPSTREAM' /tmp/_cw.out \
+    && ok 1 "/img/* -> 503 且说清「绑 R2 / 配 IMG_UPSTREAM」两条路" \
+    || ok 0 "/img/* -> $c $(head -c 120 /tmp/_cw.out)"
 else
   for f in "$F1" "$F2"; do
     npx wrangler r2 object put "jianpu-images/$D/$f" --file "/home/caesium-132/jianpu/$D/$f" --local >/dev/null 2>&1
@@ -95,7 +115,7 @@ else
   ok "$(echo "$cc" | grep -q 'max-age=604800' && echo 1 || echo 0)" "原图带长缓存头（$cc）"
 fi
 
-echo "--- 真浏览器走 Worker（有 geckodriver 才跑） ---"
+echo "--- 真浏览器走 Worker（有 geckodriver 才跑; 谱页应是 verbatim 原文、无 <img>） ---"
 if command -v geckodriver >/dev/null 2>&1 || command -v firefox.geckodriver >/dev/null 2>&1; then
   # 只跑一次（要 ~40 秒）: 输出留档, 退出码判成败
   if python3 tools/browser_check.py spa "http://127.0.0.1:$PORT" > /tmp/_cw_browser.out 2>&1; then

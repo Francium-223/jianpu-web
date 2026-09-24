@@ -118,8 +118,11 @@ class Driver:
         self.log.close()
 
 
-def first_tune_with_images():
-    """从本地索引里挑一首**有多页原图**的: (tune_id, source, 页数)。挑不出来就 None。"""
+def sample_tune():
+    """从本地索引里挑一首样本谱页: (tune_id, source, 原图页数)。挑不出来就 None。
+
+    页数已经不用了(前端不再显示原图), 但留着方便日志里看出这条谱在盘上有没有扫描件。
+    """
     imgs = {}
     with gzip.open(os.path.join(DATA, "images.jsonl.gz"), "rt", encoding="utf-8") as g:
         for ln in g:
@@ -160,7 +163,7 @@ def cmd_shot(a):
 def cmd_spa(a):
     """深链 -> 应用内跳转 -> 后退 -> 刷新: 「每谱一页」的交互自检(真浏览器)。"""
     base = (a.base or "http://127.0.0.1:8770").rstrip("/")
-    sample = first_tune_with_images()
+    sample = sample_tune()
     if not sample:
         sys.exit("!! 本地索引里挑不出「有多页原图」的样本(先跑 tools/build_web_data.py)")
     tid, src, npages = sample
@@ -202,22 +205,87 @@ def cmd_spa(a):
                "后退后检索结果还在(单页应用没被重载)")
 
         # ② 深链 + 刷新: 直接打开一首有原图的谱页, 图要真解码出来, 刷新后还在
-        print(f"  样本谱页: /s/{tid} (source={src}, {npages} 页)")
+        print(f"  样本谱页: /s/{tid} (source={src})")
         d.open(base + "/s/" + tid)
-        ok(d.wait_js("document.querySelectorAll('#tune figure.page img').length>=2"),
-           f"深链 /s/{tid} 出原图")
-        # 图片是 lazy 的、还要走网络取: 必须**等它真解码**(naturalWidth>0)再断言 ——
-        # 元素一出现就立刻查, 在隧道/慢网下会假红(实测: 本机绿、走 Cloudflare 隧道红)。
-        # 注意: wait_js 自己会加 `return (…) ? 1 : 0;`, 这里只给表达式
-        ok(d.wait_js("[...document.querySelectorAll('#tune figure.page img')]"
-                     ".some(function(i){return i.naturalWidth>0})", 40),
-           "原图真的解码出来了(naturalWidth>0)")
-        ok(d.js("return document.querySelectorAll('#tune .score .bar').length") > 0,
-           "原文里画了小节线")
-        u = d.js("return document.querySelector('#tune figure.page a').getAttribute('href')")
-        ok("/img/" in u, "图片链接走 /img/ 前缀: " + u[:70])
+        ok(d.wait_js("document.querySelector('#tune pre.sheet') ? 1 : 0", 40),
+           f"谱页 /s/{tid} 渲出 verbatim 原文")
+        ok(d.js("return document.querySelectorAll('#tune img').length") == 0,
+           "谱页里没有 <img>（「原图」那一栏已按用户口径去掉）")
+        ok(d.js("return document.querySelectorAll('#tune .meta tr').length") > 5,
+           "元数据表有内容")
+        ok(d.js("return document.querySelector('#tune pre.sheet').innerHTML.indexOf('<span')") < 0,
+           "原文块是纯文本(没有注入小节线/标黑)")
+        ok(d.js("return document.querySelector('#tune pre.sheet').textContent.length") > 20,
+           "原文块里有正文")
+        # 刷新后仍应渲出这一页（深链可用）
         d.call("POST", "/session/%s/refresh" % d.sid, {})
-        ok(d.wait_js("document.querySelectorAll('#tune figure.page img').length>=2", 30),
+        ok(d.wait_js("document.querySelector('#tune pre.sheet') ? 1 : 0", 40),
+           "刷新谱页仍然是这一页(深链可用)")
+    finally:
+        d.close()
+    return 0
+
+
+def cmd_spa(a):
+    """深链 -> 应用内跳转 -> 后退 -> 刷新: 「每谱一页」的交互自检(真浏览器)。"""
+    base = (a.base or "http://127.0.0.1:8770").rstrip("/")
+    sample = sample_tune()
+    if not sample:
+        sys.exit("!! 本地索引里挑不出「有多页原图」的样本(先跑 tools/build_web_data.py)")
+    tid, src, npages = sample
+    d = Driver(log=a.log)
+    fail = 0
+
+    def ok(c, m):
+        nonlocal fail
+        print(("✓ " if c else "✗ ") + m)
+        if not c:
+            fail += 1
+
+    try:
+        # ① 首页: 查一句旋律, 卡片上要有通向谱页的链接, 点了要**不刷新**地跳过去
+        d.open(base + "/")
+        ok(d.wait_js("document.getElementById('status').textContent.indexOf('就绪')>=0"),
+           "首页语料就绪")
+        d.js("document.getElementById('q').value='33565653253';"
+             "document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true})); return 1")
+        time.sleep(4)
+        ok(d.js("return document.querySelectorAll('#out .card').length") > 0, "旋律查歌出卡片")
+        href = d.js("var a=document.querySelector('#out a.tune-link'); return a?a.getAttribute('href'):''")
+        ok(bool(href) and "/s/" in href, "卡片上有「本谱一页」链接: " + (href or "(没有)"))
+        if href:
+            d.js("document.querySelector('#out a.tune-link').click(); return 1")
+            time.sleep(2.5)
+            o = json.loads(d.js("return JSON.stringify({p:location.pathname,"
+                                "tune:!document.getElementById('tune').hidden,"
+                                "home:!document.getElementById('home').hidden,"
+                                "cls:document.body.className,"
+                                "img:document.querySelectorAll('#tune figure.page img').length})"))
+            ok(o["tune"] and not o["home"], "应用内跳到谱页(没有整页刷新)")
+            ok(o["p"] == href, "地址栏变成 " + o["p"])
+            ok("tune-mode" in o["cls"], "谱页把版心放宽(tune-mode)")
+            d.js("history.back(); return 1")
+            time.sleep(1.5)
+            ok(d.js("return location.pathname") == "/", "后退回首页")
+            ok(d.js("return document.getElementById('out').innerHTML.length") > 200,
+               "后退后检索结果还在(单页应用没被重载)")
+
+        # ② 深链 + 刷新: 直接打开一首有原图的谱页, 图要真解码出来, 刷新后还在
+        print(f"  样本谱页: /s/{tid} (source={src})")
+        d.open(base + "/s/" + tid)
+        ok(d.wait_js("document.querySelector('#tune pre.sheet') ? 1 : 0", 40),
+           f"谱页 /s/{tid} 渲出 verbatim 原文")
+        ok(d.js("return document.querySelectorAll('#tune img').length") == 0,
+           "谱页里没有 <img>（「原图」那一栏已按用户口径去掉）")
+        ok(d.js("return document.querySelectorAll('#tune .meta tr').length") > 5,
+           "元数据表有内容")
+        ok(d.js("return document.querySelector('#tune pre.sheet').innerHTML.indexOf('<span')") < 0,
+           "原文块是纯文本(没有注入小节线/标黑)")
+        ok(d.js("return document.querySelector('#tune pre.sheet').textContent.length") > 20,
+           "原文块里有正文")
+        # 刷新后仍应渲出这一页（深链可用）
+        d.call("POST", "/session/%s/refresh" % d.sid, {})
+        ok(d.wait_js("document.querySelector('#tune pre.sheet') ? 1 : 0", 40),
            "刷新谱页仍然是这一页(深链可用)")
     finally:
         d.close()
@@ -235,7 +303,7 @@ def cmd_subdir(a):
     """
     import http.server
     import threading
-    sample = first_tune_with_images()
+    sample = sample_tune()
     if not sample:
         sys.exit("!! 本地索引里挑不出「有多页原图」的样本")
     tid = sample[0]
@@ -290,10 +358,10 @@ def cmd_subdir(a):
         d.open(base + "/s/" + tid)
         ok(renders(), "子目录 + 路径深链能渲出谱页(内联 <base> 生效)")
         ok(d.js("return document.styleSheets.length") > 0, "样式表从子目录加载")
-        ok(d.js("return document.querySelectorAll('#tune figure.page img').length") > 0,
-           "原图标签渲染出来了")
-        u = d.js("return (document.querySelector('#tune figure.page img')||{}).src || ''") or ''
-        ok("/jianpu-web/img/" in u, "原图地址按**应用根**(不是域名根)拼: " + u[:84])
+        ok(d.js("return document.querySelectorAll('#tune pre.sheet').length") == 1,
+           "谱页渲出 verbatim 原文块")
+        ok(d.js("return document.querySelectorAll('#tune img').length") == 0,
+           "谱页里没有 <img>（原图那一栏已去掉）")
         ok(d.js("return document.querySelector('#tune a.tune').getAttribute('href')").endswith("/jianpu-web/"),
            "「回检索」指向子目录根")
         # ② hash 形式: 没有 SPA 回退的纯静态主机靠它

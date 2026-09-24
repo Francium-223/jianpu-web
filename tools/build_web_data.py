@@ -7,7 +7,9 @@
   p : 音高串, 仅数字 1-7(不含升降号), 长度 = 音符数
   a : 变音串, 与 p 逐音对齐, 每字符 '0'(自然) / '1'(升) / '2'(降)
   o : 八度串, 与 p 逐音对齐, 每字符是 -2..2 的数字(可能带负号)
-  raw : 原谱原文(空格分隔的 token 流), 用于结果页显示与高亮
+  raw : **展开过**的 token 流(节头去掉、KeepLength 补全) —— 检索卡的命中高亮用它, 位置与索引对齐
+  src : **文件正文一字不差**(scores/<file>.txt 里 `%--` 之后到 `%END` 之前), 每谱一页的"原谱原文"用它
+        (用户口径 2026-09-24: 不要展开版, 要用户写的文件 verbatim)
 另外顺带产出原图索引 data/images.jsonl(.gz) —— 扫描逻辑在 tools/build_image_index.py。
 用法: py -3.13 tools/build_web_data.py [--data 路径] [--out 目录] [--no-images]
 """
@@ -49,6 +51,26 @@ def group_of(t):
     return re.split(r"[（(\s　【\[《]", base)[0].strip() or base.strip()
 
 
+def sheet_body(path):
+    """取曲谱文件**正文原样**(`%--` 之后 -> `%END` 之前), 保留换行/空行/节头/KeepLength 等一切写法。
+
+    为什么不用 data.jsonl 的 score: 那份是**展开过**的（节头 subtitle= / 拍号 / NextScore 去掉、
+    KeepLength 的省略时值补全、多节拼平）。用户 2026-09-24 明确要求"原谱原文"要一字不差。
+    """
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        with io.open(path, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+    except OSError:
+        return ""
+    if "%--" not in txt:
+        return ""
+    body = txt.split("%--", 1)[1]
+    body = re.split(r"(?im)^\s*%end\s*$", body)[0]
+    return body.strip("\n")
+
+
 def tune_id(src, files, used):
     """一首谱的**页面地址**: `/s/<id>`。id 必须 ASCII、能进 URL、且全库唯一。
 
@@ -76,6 +98,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "data"))
     ap.add_argument("--no-images", action="store_true", help="不重扫原图索引(只重建检索索引)")
     ap.add_argument("--img-base", default="/img/", help="原图 URL 前缀(换 CDN/静态站时改这里)")
+    ap.add_argument("--scores", default="", help="曲谱目录(默认 <data 所在目录>/scores); 用来取'原谱原文' verbatim")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -83,6 +106,7 @@ def main():
     # 原谱站的**确切页面**: 由 jianpu2/tools/verify_source_urls.py 逐条抓取核对后写下的映射
     # (source 里只有 `qupu123-300587` 这种 ID; 这里把它换成那一页的真实 URL)
     DB = os.path.dirname(os.path.abspath(a.data))
+    SCORES = a.scores or os.path.join(DB, "scores")
     srcpages = {}
     _sp = os.path.join(DB, "source_pages.json")
     if os.path.isfile(_sp):
@@ -125,6 +149,8 @@ def main():
             "srcurl": (srcpages.get(src) or {}).get("url", "") if src else "",
             "raw": " ".join(toks if len(toks) < 400 else toks[:400]),
             "trunc": len(toks) > 400,
+            # 原谱原文(verbatim): 用户写的文件一字不差, 多节/KeepLength/节头都保留
+            "src": sheet_body(os.path.join(SCORES, (r.get("file") or [""])[0])),
             # 小节线: data.jsonl 给的是"第 i 个音符之前有一条小节线"(0-based 音符下标)。
             # **按音符序号而非 token 序号**, 前端在音符流里对应位置插 `|`。
             "bars": [int(x) for x in (r.get("bars") or []) if isinstance(x, int)],

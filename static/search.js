@@ -29,7 +29,9 @@ export function buildIndex(text) {
     songs.push({
       id: r.id || '',                        // 「每谱一页」的地址 /s/<id>(见 build_web_data.py: tune_id)
       title: r.t, group: r.g, source: r.s, status: r.st, n: r.n,
-      p: r.p, a: r.a || '', o: r.o || '', raw: r.raw || '', trunc: !!r.trunc,
+      p: r.p, a: r.a || '', o: r.o || '',
+      raw: r.raw || '', trunc: !!r.trunc,
+      src: r.src || '',            // 原谱原文 verbatim(每谱一页用; 与 raw 的"展开版"不同)
       bars: r.bars || [], bpb: r.bpb || 4,
       file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
       alias: r.alias || [], artist: r.artist || [], transcriber: r.transcriber || [],
@@ -133,6 +135,7 @@ export function search(idx, segs, opt) {
       title: h.song.title, group: r.group, source: h.song.source, status: h.song.status,
       n: h.song.n, cost: r.total, exact: r.exact, qlen: n, at: h.at,
       raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars, bpb: h.song.bpb,
+      src: h.song.src,
       file: h.song.file, tags: h.song.tags, usertags: h.song.usertags,
       alias: h.song.alias, artist: h.song.artist, transcriber: h.song.transcriber, mbid: h.song.mbid,
       links: h.song.links || [], srcurl: h.song.srcurl || '',

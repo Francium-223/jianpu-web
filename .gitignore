@@ -7,5 +7,5 @@ data/refresh.log
 data/.refresh.lock
 data/.refresh.pending
 node_modules/
-dist/
+dist*/
 .wrangler/

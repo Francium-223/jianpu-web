@@ -14,8 +14,6 @@ function appUrl(rel) { return new URL(rel, ROOT_URL).toString(); }
 function appPath(rel) { return new URL(rel, ROOT_URL).pathname; }
 function tunePath(id) { return appPath('s/' + encodeURIComponent(id)); }
 
-var IMGS = null;                    // source -> 原图索引(每谱一页才用, 懒加载)
-var IMG_BASE = 'img/';              // stats.json 里的 img_base(相对应用根); 换 CDN 就改那儿
 
 function $(id) { return document.getElementById(id); }
 var IDX = null;
@@ -27,34 +25,6 @@ function loadCorpus() {
   return fetch(appUrl('data/songs.jsonl.gz')).then(function (r) {
     return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text();
   });
-}
-
-/* 原图索引: 每行一个 source(见 tools/build_image_index.py)。只有真的打开某一谱的页面时才拉,
- * 找歌/检索不需要它 —— 0.5MB gz, 打开一次就缓存住了。 */
-function loadImages() {
-  if (IMGS) return Promise.resolve(IMGS);
-  var p = (typeof DecompressionStream === 'undefined')
-    ? fetch(appUrl('data/images.jsonl')).then(function (r) { return r.text(); })
-    : fetch(appUrl('data/images.jsonl.gz')).then(function (r) {
-        return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text();
-      });
-  return p.then(function (txt) {
-    var m = {};
-    txt.split('\n').forEach(function (l) {
-      if (!l) return;
-      try { var r = JSON.parse(l); m[r.s] = r; } catch (e) { /* 坏行跳过 */ }
-    });
-    IMGS = m;
-    return m;
-  }).catch(function () { IMGS = {}; return IMGS; });     // 没建成索引也不该让页面炸掉
-}
-
-/* 原图地址: 索引里存的是**相对工作区根**的路径(如 images-prep/批次/曲名__source/001.jpg),
- * 逐段 encodeURIComponent(目录名里有中文/空格/括号), 再对 img_base 求绝对 URL。 */
-function imgSrc(rel) {
-  var base = (IMG_BASE || 'img/').replace(/^\/+/, '');
-  return new URL(base + String(rel || '').split('/').map(encodeURIComponent).join('/'),
-                 ROOT_URL).toString();
 }
 
 
@@ -106,7 +76,6 @@ var PLATFORMS = [
   ['MusicBrainz', /musicbrainz\.org/, 'https://musicbrainz.org/recording/…', 'https://musicbrainz.org/search?query={q}&type=recording'],
 ];
 function loadPlatforms(st) {
-  if (st && st.img_base) IMG_BASE = String(st.img_base);
   if (!st || !st.platforms || !st.platforms.length) return;
   try {
     PLATFORMS = st.platforms.map(function (p) {
@@ -369,46 +338,15 @@ function showTune(id) {
     document.title = '没有这一页 — 简谱旋律查歌';
     return;
   }
-  t.innerHTML = '<p class="status">正在加载原图…</p>';
-  loadImages().then(function (imgs) {
-    if (CURRENT_TUNE !== id) return;          // 用户已经点走了, 别把旧内容盖回去
-    t.innerHTML = tuneHtml(row, imgs[row.source] || null);
-    document.title = (row.group || row.title || id) + ' — 简谱旋律查歌';
-  });
+  t.innerHTML = tuneHtml(row);
+  document.title = (row.group || row.title || id) + ' — 简谱旋律查歌';
 }
 
-/* 原图区: 整页扫描件一页一张。derived=1 表示盘上只剩切好的条(不是整页), 得说清楚。 */
-function pagesHtml(r, im) {
-  if (!im || !im.pg || !im.pg.length) {
-    var s = r.srcurl ? '先去 <a href="' + esc(r.srcurl) + '" target="_blank" rel="noopener">原谱站那一页</a> 看。' : '';
-    return '<p class="hint">这首<b>还没存下原图</b>（扫描件是按 <code>source</code> 归档的，这首没有对上的目录）。' + s + '</p>';
-  }
-  var html = '';
-  im.pg.forEach(function (p, i) {
-    var u = imgSrc(im.d + '/' + p[0]);
-    html += '<figure class="page" id="page' + (i + 1) + '">' +
-      '<a href="' + esc(u) + '" target="_blank" rel="noopener" title="点开看原始大小">' +
-      '<img src="' + esc(u) + '" width="' + p[1] + '" height="' + p[2] + '"' +
-      ' alt="' + esc((r.group || r.title || '') + ' 第 ' + (i + 1) + ' 页') + '"' +
-      ' loading="' + (i ? 'lazy' : 'eager') + '" decoding="async"></a>' +
-      '<figcaption>第 ' + (i + 1) + ' / ' + im.pg.length + ' 页 · ' + p[1] + '×' + p[2] +
-      ' · <a href="' + esc(u) + '" target="_blank" rel="noopener">原始大小</a></figcaption></figure>';
-  });
-  if (im.alt && im.alt.length) {               // 同一首的另一份扫描件(原始件 / 别的抓取批次)
-    html += '<p class="hint">另有：' + im.alt.map(function (a) {
-      var dir = a[0] || '', names = a[1] || [];
-      if (typeof names.slice !== 'function') names = [];    // 老格式(存的是页数)也不至于把页面炸掉
-      var label = dir.split('/').slice(0, 2).join('/');
-      var links = names.slice(0, 12).map(function (n, i) {
-        return '<a href="' + esc(imgSrc(dir + '/' + n)) + '" target="_blank" rel="noopener">第' + (i + 1) + '页</a>';
-      }).join(' ');
-      return esc(label) + '（' + names.length + ' 页） ' + links;
-    }).join('<br>') + '</p>';
-  }
-  return html;
-}
-
-function tuneHtml(r, im) {
+/* 每谱一页。**没有"原图"那一栏**（用户口径 2026-09-24: 不转存扫描件、也不外链图片）——
+ * 原站那一页的地址本来就在「出处」和「收录页」里, 信息不丢, 版面还干净。
+ * 页面就是: 标题/副行 -> 全部元数据 + 收录页 + 补标签 -> 带小节线的原文。
+ */
+function tuneHtml(r) {
   var list = function (x) { return (x || []).join('、'); };
   var sub = [
     r.artist && r.artist.length ? '歌手 ' + esc(list(r.artist)) : '',
@@ -418,30 +356,25 @@ function tuneHtml(r, im) {
     r.source ? '出处 ' + esc(r.source) : '',
   ].filter(Boolean).join(' · ');
   var motif = (r.p && r.p.length >= 8)
-    ? '<a class="tune" href="' + esc(appPath('') + '?q=' + r.p.slice(0, 8)) + '"' +
-      ' title="把这 8 个音送进旋律检索(查重、找同曲异名)">用开头的 ' + r.p.slice(0, 8) + ' 去检索</a>'
+    ? '<p class="hint"><a class="tune" href="' + esc(appPath('') + '?q=' + r.p.slice(0, 8)) + '"' +
+      ' title="把这 8 个音送进旋律检索(查重、找同曲异名)">用开头的 ' + r.p.slice(0, 8) + ' 去检索</a></p>'
     : '';
   return '<p class="crumb"><a class="tune" href="' + esc(APP_PATH) + '">← 回检索</a>' +
       '<span class="dim">' + esc(r.id || '') + '</span></p>' +
     '<h1 class="tune-h1">' + esc(r.group || r.title || '(无题)') + '</h1>' +
     '<p class="tune-sub">' + sub + '</p>' +
-    '<div class="tune-cols">' +
-      '<section class="viewer"><h2>原谱图' +
-        (im && im.pg && im.pg.length ? '（' + im.pg.length + ' 页）' : '') + '</h2>' +
-        (im && im.drv ? '<p class="hint">⚠ 这一首盘上只剩<b>切好的谱表条</b>，没有整页扫描件 —— 下面这些是切图。</p>' : '') +
-        pagesHtml(r, im) +
-        (motif ? '<p class="hint">' + motif + '</p>' : '') +
-      '</section>' +
-      '<aside class="side"><h2>元数据</h2>' + metaRows(r) +
-        '<div class="links"><span class="lab">收录页</span> ' + exactLinks(r, 'tune') + addTagForm(r) +
-          '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener"' +
-          ' title="这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a></div>' +
-      '</aside>' +
-    '</div>' +
+    '<h2>元数据</h2>' + metaRows(r) +
+    '<div class="links"><span class="lab">收录页</span> ' + exactLinks(r, 'tune') + addTagForm(r) +
+      '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener"' +
+      ' title="这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a></div>' +
+    motif +
     '<h2>原谱原文</h2>' +
-    (r.raw ? '<div class="score">' + renderScore(r.raw, null, 0, r.bars) + '</div>' +
-             (r.trunc ? '<p class="hint">原谱较长，这里只显示前 400 个 token。</p>' : '')
-           : '<p class="hint">没有原文。</p>') +
+    // **verbatim**: 曲谱文件正文原样(含节头/KeepLength/换行), 既不展开也不注入小节线 ——
+    // 用户口径 2026-09-24("用用户写的文件一字不差")。老数据没有 src 时退回 raw。
+    ((r.src || r.raw)
+      ? '<pre class="sheet">' + esc(r.src || r.raw) + '</pre>' +
+        (r.src ? '' : '<p class="hint">（这份索引较早，只有展开过的原文；重建索引后就是文件原文。）</p>')
+      : '<p class="hint">没有原文。</p>') +
     '<footer><a class="tune" href="' + esc(APP_PATH) + '">← 回检索页</a></footer>';
 }
 
