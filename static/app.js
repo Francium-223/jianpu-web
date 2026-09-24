@@ -23,7 +23,16 @@ function loadCorpus() {
     return fetch(appUrl('data/songs.jsonl')).then(function (r) { return r.text(); });
   }
   return fetch(appUrl('data/songs.jsonl.gz')).then(function (r) {
-    return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    // 两种服务端行为都得认:
+    //   ① 替我们解好并带 `Content-Encoding: gzip`(某些静态托管会这么干) -> 直接读文本;
+    //   ② 原样发 gzip 字节(Cloudflare Pages 就是这样) -> 自己解。
+    // 头/方法都不是必然存在(自检里的假 fetch 就只有 `{ok, body}`), 所以每处先问一句再说 ——
+    // 2026-09-25 就是把 `r.headers.get` 当成必然存在, 初始化当场炸, 被 check_render/page/ui/tune 抓到。
+    if (r.headers && r.headers.get && /gzip/i.test(r.headers.get('content-encoding') || '')) return r.text();
+    // 用 clone 是为了"解压失败还能回头读原文"(有托管把 .gz 当纯文本发); 没有 clone 就用原 body。
+    var body = (typeof r.clone === 'function') ? r.clone().body : r.body;
+    return new Response(body.pipeThrough(new DecompressionStream('gzip'))).text()
+      .catch(function () { return (typeof r.text === 'function') ? r.text() : ''; });
   });
 }
 
@@ -566,6 +575,7 @@ document.addEventListener('click', function (ev) {
     var tmsg = tbox.querySelector('.al-msg');
     var tags = (tin.value || '').trim();
     if (!tags) { tmsg.className = 'al-msg err'; tmsg.textContent = '先填标签'; return; }
+    if (READONLY) { readonlyInto(tmsg); return; }        // 只读镜像: 别发一个必 404 的请求
     tb.disabled = true; tmsg.className = 'al-msg'; tmsg.textContent = '保存中…';
     fetch(API + '/api/submit', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -592,6 +602,7 @@ document.addEventListener('click', function (ev) {
   var msg = box.querySelector('.al-msg');
   var url = (inp.value || '').trim();
   if (!url) { msg.className = 'al-msg err'; msg.textContent = '先粘贴网址'; return; }
+  if (READONLY) { readonlyInto(msg); return; }          // 同上
   b.disabled = true;
   msg.className = 'al-msg';
   msg.textContent = '保存中…';
@@ -637,11 +648,23 @@ for (var i = 0; i < exs.length; i++) {
 
 /* ---------- 投稿(不用登录, 不碰 GitHub) ---------- */
 var API = window.JIANPU_API || (location.protocol + '//' + location.host);   // 同源; 换服务器就设 window.JIANPU_API
+// 纯静态托管(如 GitHub Pages 镜像)没有写回服务: 构建时注入 window.JIANPU_READONLY=true。
+// 读路径(检索/卡片/谱页)本来全在浏览器里跑, 一点不受影响; 只有"投稿/补收录/补标签"要给句人话。
+var READONLY = !!window.JIANPU_READONLY;
+var MIRROR = 'https://jianpu-web.pages.dev/';       // 有写回的那份(Cloudflare); 只读镜像里指给大家
+
+function readonlyInto(el) {
+  el.className = (el.classList && el.classList.contains('al-msg')) ? 'al-msg err' : 'status err';
+  el.innerHTML = '这里只读：查歌与谱页都能用，但投稿/补收录/补标签要写回本机服务 —— 请到 ' +
+    '<a href="' + MIRROR + '" target="_blank" rel="noopener">jianpu-web.pages.dev</a> 提交。';
+}
+
 var LAST = '', LASTFILE = '';   // 供「投稿」表单: 曲名 + 刚查的那一份曲谱文件
 
 function submit() {
   var t = $('stitle').value.trim();
   if (!t) { $('sstatus').className = 'status err'; $('sstatus').textContent = '请填曲名。'; return; }
+  if (READONLY) { readonlyInto($('sstatus')); return; }
   var kind = $('skind').value;
   var body = {
     kind: kind, title: t,
@@ -681,6 +704,12 @@ function submit() {
 }
 
 $('sform').addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+if (READONLY) {           // 表单还在, 但先把话说清楚 —— 免得人填完才发现写不进去
+  $('sform').insertAdjacentHTML('beforebegin',
+    '<p class="lead" id="ro-note">⚠ 本页是 <b>GitHub Pages 只读镜像</b>：查歌与谱页完全可用；' +
+    '投稿/补标签要写回本机服务，请到 <a href="' + MIRROR + '" target="_blank" rel="noopener">' +
+    'jianpu-web.pages.dev</a> 提交。</p>');
+}
 $('sfill').addEventListener('click', function () {
   if (LAST) { $('stitle').value = LAST; }
   else { $('sstatus').textContent = '先在上面查一次，再点这个按钮。'; }

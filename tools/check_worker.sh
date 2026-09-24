@@ -71,6 +71,15 @@ c=$(curl -s -m 20 -o /tmp/_cw.out -w '%{http_code}' -X POST -H 'Content-Type: ap
      -d '{"kind":"new","title":"x","score":"12345"}' "http://127.0.0.1:$PORT/api/submit")
 [ "$c" = 503 ] && grep -q '投稿后端' /tmp/_cw.out && ok 1 "没配后端时 /api/submit -> 503 且说人话" \
                                                  || ok 0 "没配后端时 /api/submit -> $c $(head -c 120 /tmp/_cw.out)"
+# 跨域(GitHub Pages 镜像把投稿指向这里)会先发 OPTIONS 预检: 浏览器不认就直接拦掉,
+# 连"后端没配"这句人话都看不到。所以预检必须是 204 + 放行 Content-Type。
+c=$(curl -s -m 20 -o /dev/null -D /tmp/_cw.h -w '%{http_code}' -X OPTIONS \
+     -H 'Origin: https://francium-223.github.io' -H 'Access-Control-Request-Method: POST' \
+     -H 'Access-Control-Request-Headers: content-type' "http://127.0.0.1:$PORT/api/submit")
+[ "$c" = 204 ] && grep -qi '^access-control-allow-origin: \*' /tmp/_cw.h \
+  && grep -qi '^access-control-allow-headers: .*content-type' /tmp/_cw.h \
+  && ok 1 "/api/* 跨域预检 OPTIONS -> 204 且放行 Content-Type" \
+  || ok 0 "/api/* 跨域预检 OPTIONS -> $c $(tr -d '\r' < /tmp/_cw.h | grep -i access-control | tr '\n' ' ')"
 
 echo "--- 越界 / 非图 ---"
 c=$(code "/img/%2e%2e/wrangler.jsonc")

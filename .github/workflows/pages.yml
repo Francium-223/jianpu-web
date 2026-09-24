@@ -1,0 +1,102 @@
+name: Deploy to GitHub Pages
+
+# 把 jianpu-web 发到 **GitHub Pages**: https://francium-223.github.io/jianpu-web/
+# （仓库名就是子路径 —— 站点整个住在 /jianpu-web/ 下, 这正是这条路要验的东西。）
+#
+# 为什么这条不需要 wrangler/语料/Python: 产物是**纯静态**的 ——
+#   * 检索/卡片/谱页全在浏览器里跑, 不需要服务端;
+#   * `data/songs.jsonl.gz` + `stats.json` **已经入库**(见 .gitignore: 只 ignore 明文那两份);
+#   * 深链靠 `404.html`(内容与 index.html 逐字节相同) —— Pages 对未知路径就发它;
+#   * 没有 Worker, 所以构建时注入只读开关: 投稿/补收录/补标签给"请到 pages.dev"的人话。
+#     想让镜像也能投稿: 把 build 那步换成
+#       node tools/build_dist.mjs --target gh --out dist --api https://jianpu-web.pages.dev
+#     (Worker 已放行跨域预检, 它再把请求转发给本机; 本机不在线时给 503 人话。)
+#
+# 启用(一次): 仓库 Settings → Pages → Build and deployment → Source: **GitHub Actions**。
+# 没启用时这个 workflow **不会变红**: 先探测 Pages 站点在不在, 不在就只构建+自检并留一条 notice
+# —— 免得仓库首页挂个红叉, 让人以为代码坏了(2026-09-25 刚被"取消=cancelled 看着像失败"坑过一次)。
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  # 发布**故意不取消**正在跑的那次(官方模板也是 false): 取消会在列表里留个红叉, 看着像失败。
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      pages: ${{ steps.probe.outputs.on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 本仓库那套 Pages 自检: 产物断言 + 按 Pages 真实规矩起的静态服务(runner 上没有 geckodriver,
+      # 真浏览器那步自己跳过)。这一步**无论 Pages 启用与否都跑** —— 它才是"代码没坏"的证据。
+      - name: 自检（GH Pages 规矩）
+        run: JIANPU_QUICK=1 bash tools/check_gh_pages.sh
+
+      - name: 构建产物
+        run: node tools/build_dist.mjs --target gh --out dist
+
+      - name: 产物断言（构建后再确认一遍）
+        run: |
+          set -eu
+          test -f dist/.nojekyll
+          test ! -e dist/_headers
+          cmp -s dist/404.html dist/index.html
+          test -s dist/data/songs.jsonl.gz
+          grep -q 'window.JIANPU_READONLY=true;' dist/index.html
+          echo "产物 OK: $(find dist -type f | wc -l) 个文件, $(du -sh dist | cut -f1)"
+
+      - name: Pages 启用了没有
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=$(curl -s -o /tmp/pages.json -w '%{http_code}' \
+                 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                 "https://api.github.com/repos/${{ github.repository }}/pages")
+          echo "GET /repos/${{ github.repository }}/pages -> $code"
+          if [ "$code" = 200 ]; then
+            echo "on=1" >> "$GITHUB_OUTPUT"
+          elif [ "$code" = 404 ]; then
+            echo "on=0" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'；之后本 workflow 会自动发布到 https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/ 。本次只构建+自检，没有发布。"
+          else
+            # 403/5xx: 探不出来(权限/限流)。这时**照常往下走** —— 真有问题让 configure-pages 报清楚,
+            # 总比"明明启用了却永远不发布"强。
+            echo "on=1" >> "$GITHUB_OUTPUT"
+            echo "::warning::探测 Pages 状态得到 HTTP $code, 无法确定; 继续尝试发布。"
+          fi
+
+      - if: steps.probe.outputs.on == '1'
+        uses: actions/configure-pages@v5
+
+      - if: steps.probe.outputs.on == '1'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.pages == '1'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

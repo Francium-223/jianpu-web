@@ -36,6 +36,9 @@ export default {
       return serveImage(request, env, url);
     }
     if (path.startsWith('/api/')) {
+      // 跨域调用(GitHub Pages 那个静态镜像把投稿指向这里)会先发 OPTIONS 预检:
+      // `Content-Type: application/json` 属于非简单请求, 没有这一段浏览器直接就拦了 —— 连不上本机。
+      if (request.method === 'OPTIONS') return preflight();
       if (path === '/api/health') {
         return json({ ok: true, deploy: 'cloudflare-worker',
                       images: env.IMAGES ? 'r2' : (env.IMG_UPSTREAM ? 'proxy' : 'none'),
@@ -138,5 +141,18 @@ function json(obj, status = 200) {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8',
                'cache-control': 'no-store', 'Access-Control-Allow-Origin': '*' },
+  });
+}
+
+/** /api/* 的 CORS 预检应答(204, 不带 body)。只放开这一个前缀; 其余路径不受影响。 */
+function preflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '86400',
+    },
   });
 }

@@ -9,6 +9,8 @@
 用法:
     python3 tools/browser_check.py shot <url> <出图.png> [--wait-js 条件] [--size 1440x1100] [--scroll 0,1500]
     python3 tools/browser_check.py spa  [base]        # 深链/应用内跳转/后退/刷新 的交互自检
+    python3 tools/browser_check.py subdir             # 子目录部署(有 SPA 回退的静态主机)
+    python3 tools/browser_check.py ghpages            # **GitHub Pages** 规矩: 子路径 + 404.html(状态 404)
 
 依赖: firefox + geckodriver(`firefox.geckodriver` 或 `geckodriver` 在 PATH 里); 没装就别跑,
 `tools/check_all.sh` 会自己跳过这一步。
@@ -379,15 +381,132 @@ def cmd_subdir(a):
     return 1 if fail else 0
 
 
+def cmd_ghpages(a):
+    """**GitHub Pages** 自检: 按 Pages 的真实规矩起一个静态服务器, 拿真浏览器走一遍。
+
+    为什么要单独一个模式(而不是复用 subdir): Pages 和"有 SPA 回退的静态主机"**不一样** ——
+      * 站点在**子路径** `/jianpu-web/` 下(user.github.io/<repo>/);
+      * 未知路径**不**回退到 index.html, 而是发 **`404.html`(HTTP 状态也是 404)**;
+      * 没有 Worker: `/api/*` 根本不存在(local build 注入了只读开关)。
+    所以这里: 先用 `--target gh` 把产物建到临时目录, 再照上面的规矩服务, 最后验首页/路径深链/
+    hash 深链/只读提示。**不装 geckodriver 就跳过**(与 spa/subdir 同样的态度)。
+    """
+    import http.server
+    import subprocess
+    import threading
+    sample = sample_tune()
+    if not sample:
+        sys.exit("!! 本地索引里挑不出样本谱页")
+    tid = sample[0]
+    web = os.path.dirname(HERE)                    # .../jianpu-web
+    root = os.path.join(a.tmp, "site")
+    site = os.path.join(root, "jianpu-web")        # 站点内容挂在 /jianpu-web/ 下
+    shutil.rmtree(root, ignore_errors=True)
+    os.makedirs(root, exist_ok=True)
+    r = subprocess.run(["node", os.path.join(HERE, "build_dist.mjs"),
+                        "--target", "gh", "--out", site],
+                       cwd=web, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("!! 构建 gh 产物失败:\n" + r.stdout + r.stderr)
+    if not os.path.isfile(os.path.join(site, "404.html")):
+        sys.exit("!! gh 产物里没有 404.html")
+    with open(os.path.join(site, "index.html"), "rb") as f:
+        index_bytes = f.read()
+    with open(os.path.join(site, "404.html"), "rb") as f:
+        notfound_bytes = f.read()
+
+    class Pages(http.server.SimpleHTTPRequestHandler):
+        """GitHub Pages 的规矩: 找不到的路径发 404.html, 且**状态码是 404**。"""
+        def log_message(self, *x):
+            pass
+
+        def do_GET(self):
+            p = self.translate_path(self.path)
+            if os.path.isdir(p):
+                p = os.path.join(p, "index.html")
+            if not os.path.isfile(p):
+                self.send_response(404)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(notfound_bytes)))
+                self.end_headers()
+                self.wfile.write(notfound_bytes)
+                return
+            return super().do_GET()
+
+    port = free_port()
+    handler = functools.partial(Pages, directory=root)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = "http://127.0.0.1:%d/jianpu-web" % port
+    print("静态服务器:", base, "(GitHub Pages 模拟: 子路径 + 404.html 回退, 没有 SPA 回退)")
+    d = Driver(log=a.log)
+    fail = 0
+
+    def ok(c, m):
+        nonlocal fail
+        print(("✓ " if c else "✗ ") + m)
+        if not c:
+            fail += 1
+
+    def renders():
+        return d.wait_js("document.getElementById('tune') && "
+                         "document.getElementById('tune').innerHTML.length>200", 40)
+
+    try:
+        # ⓪ 产物本身: 404.html 必须与 index.html 逐字节相同(构建脚本复制的那一份)
+        ok(index_bytes == notfound_bytes, "404.html 与 index.html 逐字节相同")
+        ok(b'window.JIANPU_READONLY=true;' in index_bytes,
+           "产物里注入了只读开关(静态托管没有写回服务)")
+        ok(b'_headers' not in index_bytes and not os.path.exists(os.path.join(site, "_headers")),
+           "gh 产物不带 Cloudflare 的 _headers")
+        ok(os.path.exists(os.path.join(site, ".nojekyll")), "有 .nojekyll(别让 Jekyll 插手)")
+
+        # ① 首页之子路径: 语料要能从 /jianpu-web/data/ 正确加载
+        d.open(base + "/")
+        ok(d.wait_js("document.getElementById('status').textContent.indexOf('就绪')>=0", 40),
+           "子路径首页能加载并解析语料(%s)" % d.js("return document.getElementById('status').textContent"))
+        ok(d.js("return document.getElementById('ro-note') ? 1 : 0") == 1,
+           "投稿区上方给了只读提示条")
+        # 只读时投稿必须**给句人话**, 而不是发一个必 404 的请求
+        d.js("document.getElementById('stitle').value='测试只读'")
+        d.js("document.getElementById('sgo').click()")
+        ok(d.wait_js("document.getElementById('sstatus').textContent.indexOf('只读')>=0", 10),
+           "只读镜像里点投稿 -> 提示'只读'而不是报网络错: %s"
+           % d.js("return document.getElementById('sstatus').textContent")[:60])
+
+        # ② 路径深链 `/jianpu-web/s/<id>`: 这一页由 **404.html** 发出来(HTTP 404),
+        #    靠 index.html 里那段内联 <base> 把相对路径摆正 —— 这是 Pages 上最容易白屏的一处
+        d.open(base + "/s/" + tid)
+        ok(renders(), "路径深链由 404.html 发出, 仍能渲出谱页(<base> 生效)")
+        ok(d.js("return document.querySelectorAll('#tune pre.sheet').length") == 1,
+           "谱页渲出 verbatim 原文块")
+        ok(d.js("return document.getElementById('tune').innerHTML.indexOf('加载')<0"),
+           "不是卡在'加载中'")
+        # ③ hash 深链(纯静态主机最稳的形式)
+        d.open(base + "/#/s/" + tid)
+        ok(renders(), "hash 深链 #/s/<id> 也能渲出谱页")
+        # ④ 从谱页点「回检索」要回到子目录根
+        d.open(base + "/s/" + tid)
+        renders()
+        ok(d.js("return document.querySelector('#tune a.tune').getAttribute('href')").endswith("/jianpu-web/"),
+           "「回检索」指向子目录根")
+    finally:
+        d.close()
+        srv.shutdown()
+        shutil.rmtree(root, ignore_errors=True)
+    print("\nGitHub Pages 部署自检 " + ("通过" if not fail else "失败 %d 项" % fail))
+    return 1 if fail else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["shot", "spa", "subdir"])
+    ap.add_argument("mode", choices=["shot", "spa", "subdir", "ghpages"])
     ap.add_argument("url", nargs="?", help="shot: 要截的网址; spa: 站点根(默认 127.0.0.1:8770)")
     ap.add_argument("out", nargs="?", default="/tmp/jianpu_page.png")
     ap.add_argument("--wait-js", default="", help="截图前等这个 JS 条件为真")
     ap.add_argument("--size", default="1440x1100")
     ap.add_argument("--scroll", default="", help="逗号分隔的滚动位置, 每个位置截一张")
-    ap.add_argument("--tmp", default="/tmp/jianpu-subdir", help="subdir 模式挂仓库的临时目录")
+    ap.add_argument("--tmp", default="/tmp/jianpu-subdir", help="subdir/ghpages 用的临时目录")
     ap.add_argument("--log", default=os.devnull, help="geckodriver 的日志文件")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -398,6 +517,9 @@ def main():
     if a.mode == "subdir":
         os.makedirs(a.tmp, exist_ok=True)
         return cmd_subdir(a)
+    if a.mode == "ghpages":
+        os.makedirs(a.tmp, exist_ok=True)
+        return cmd_ghpages(a)
     a.base = a.url
     return cmd_spa(a)
 

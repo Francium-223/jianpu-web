@@ -2,12 +2,14 @@
   "name": "jianpu-web",
   "private": true,
   "type": "module",
-  "description": "简谱旋律查歌 —— 前端（零依赖 ES module）+ Cloudflare Workers 部署包装",
+  "description": "简谱旋律查歌 —— 前端（零依赖 ES module）+ Cloudflare Workers / GitHub Pages 两条部署包装",
   "scripts": {
     "build": "node tools/build_dist.mjs",
+    "build:gh": "node tools/build_dist.mjs --target gh",
     "dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
-    "check": "bash tools/check_all.sh"
+    "check": "bash tools/check_all.sh",
+    "check:gh": "bash tools/check_gh_pages.sh"
   },
   "devDependencies": {
     "wrangler": "^4"

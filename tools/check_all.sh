@@ -21,6 +21,9 @@ run node tools/check_search.mjs "$URL"
 run node tools/check_ui.mjs "$URL"
 run node tools/check_tune.mjs "$URL"
 run node tools/check_live.mjs "$URL"
+# GitHub Pages(纯静态托管)那条路: 子路径 + 404.html 回退 + 只读, 与 Cloudflare 那套**不一样**,
+# 所以单列一组(构建 + 产物断言 + 真浏览器模拟 Pages 规矩)。
+run bash tools/check_gh_pages.sh
 # 真浏览器那一步: 假 DOM 证明不了"图真的解码出来/点了能跳/刷新还在"。没装 geckodriver 就跳过。
 if command -v geckodriver >/dev/null 2>&1 || command -v firefox.geckodriver >/dev/null 2>&1; then
   run python3 tools/browser_check.py spa "$URL"
