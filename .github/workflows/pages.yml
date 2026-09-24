@@ -2,28 +2,27 @@ name: Deploy to GitHub Pages
 
 # 把前端发到 **GitHub Pages**。
 #
-# 2026-09-25 实测: 仓库已被改名/转移到组织站 **jianpu-db/jianpu-db.github.io** ——
-# 这种 `<org>.github.io` 仓库发在**域名根**上: https://jianpu-db.github.io/
-# （普通项目仓库才在子路径 `/jianpu-web/` 下; 两种位置我们的产物都支持 ——
-#   index.html 里那段内联 <base> 按"文档地址 = 应用根 + 可能多的 s/<id>"摆正相对路径,
-#   自检里跑的正是更难的子路径那种。）
+# 站点: **https://jianpu-db.github.io/** —— 仓库是组织站 `jianpu-db/jianpu-db.github.io`
+# (`<org>.github.io` 这种仓库发在**域名根**; 普通项目仓库才在 `/<repo>/` 子路径。
+#  两种位置产物都支持: index.html 里那段内联 <base> 会按"文档地址 = 应用根 + 可能多的 s/<id>"
+#  摆正相对路径 —— 自检里跑的正是更难的子路径那种。)
 #
-# ⚠ Pages 的 **Source 必须是 "GitHub Actions"**。若还是"分支"模式, 站点发的会是**仓库源码树**
-#   (根目录没有 index.html -> 首页 404), 而 `actions/deploy-pages` 照样报成功 —— 所以下面
-#   probe 步骤会读 build_type, deploy 之后再取一次首页实测把关。
+# 为什么这条不需要语料/Python/wrangler: 产物是**纯静态**的 —— 检索/卡片/谱页全在浏览器里跑;
+# `data/songs.jsonl.gz` + `stats.json` 已入库; 深链靠 `404.html`(内容与 index.html 逐字节相同);
+# 没有 Worker, 所以构建时注入只读开关(投稿/补标签给"请到 pages.dev"的人话)。
 #
-# 为什么这条不需要 wrangler/语料/Python: 产物是**纯静态**的 ——
-#   * 检索/卡片/谱页全在浏览器里跑, 不需要服务端;
-#   * `data/songs.jsonl.gz` + `stats.json` **已经入库**(见 .gitignore: 只 ignore 明文那两份);
-#   * 深链靠 `404.html`(内容与 index.html 逐字节相同) —— Pages 对未知路径就发它;
-#   * 没有 Worker, 所以构建时注入只读开关: 投稿/补收录/补标签给"请到 pages.dev"的人话。
-#     想让镜像也能投稿: 把 build 那步换成
-#       node tools/build_dist.mjs --target gh --out dist --api https://jianpu-web.pages.dev
-#     (Worker 已放行跨域预检, 它再把请求转发给本机; 本机不在线时给 503 人话。)
+# ⚠ 两件事都要做, 因为 Pages 的 **Source 有两种模式**, 发的东西不一样:
+#   ① **"GitHub Actions"** —— 发的是本 workflow 上传的 artifact;
+#   ② **"Deploy from a branch"** —— 发的是**仓库源码树的那个分支**(根目录没有 index.html 就是 404),
+#      而且这种模式下同一次 push 触发的分支构建会**覆盖** artifact 的发布
+#      (2026-09-25 实测: 取回首页先是产物, 一分多钟后变回仓库树)。
+#   所以本 workflow 两手都做:
+#     * **同步构建产物到仓库根**(index.html / 404.html / .nojekyll / static/*.<hash>.js)并提交 —— 分支模式靠它;
+#     * 走 Actions 的 configure/upload/deploy-pages —— Actions 模式靠它; 两边内容相同, 不打架。
+#   最后**取回首页比对哈希**: 必须能拿回这一次构建的那个 `static/app.<hash>.js`, 才算出货。
 #
-# 启用(一次): 仓库 Settings → Pages → Build and deployment → Source: **GitHub Actions**。
-# 没启用时这个 workflow **不会变红**: 先探测 Pages 站点在不在, 不在就只构建+自检并留一条 notice
-# —— 免得仓库首页挂个红叉, 让人以为代码坏了(2026-09-25 刚被"取消=cancelled 看着像失败"坑过一次)。
+# 想只保留"干净"的 Actions 模式: Pages 的 Source 改成 'GitHub Actions', 再删掉仓库根那几件产物
+# (index.html / 404.html / .nojekyll / static/*.<hash>.js), 本 workflow 会自动只走 Actions 那条。
 
 on:
   push:
@@ -31,7 +30,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write        # 同步产物到仓库根要提交
   pages: write
   id-token: write
 
@@ -53,14 +52,14 @@ jobs:
           node-version: '20'
 
       # 本仓库那套 Pages 自检: 产物断言 + 按 Pages 真实规矩起的静态服务(runner 上没有 geckodriver,
-      # 真浏览器那步自己跳过)。这一步**无论 Pages 启用与否都跑** —— 它才是"代码没坏"的证据。
+      # 真浏览器那步自己跳过)。**哪种模式都跑** —— 它才是"代码没坏"的证据。
       - name: 自检（GH Pages 规矩）
         run: JIANPU_QUICK=1 bash tools/check_gh_pages.sh
 
       - name: 构建产物
         run: node tools/build_dist.mjs --target gh --out dist
 
-      - name: 产物断言（构建后再确认一遍）
+      - name: 产物断言
         run: |
           set -eu
           test -f dist/.nojekyll
@@ -68,41 +67,43 @@ jobs:
           cmp -s dist/404.html dist/index.html
           test -s dist/data/songs.jsonl.gz
           grep -q 'window.JIANPU_READONLY=true;' dist/index.html
+          echo "入口: $(grep -o 'static/app\.[0-9a-f]*\.js' dist/index.html | head -1)"
           echo "产物 OK: $(find dist -type f | wc -l) 个文件, $(du -sh dist | cut -f1)"
 
-      - name: Pages 启用了没有 / 是不是 "GitHub Actions" 模式
+      # ① 分支模式要用: 把产物摊到仓库根(与源码不冲突: 产物是带内容哈希的文件名)。
+      #    只在真有变化时提交, 带 [skip ci] 免得自激。
+      - name: 同步产物到仓库根（分支模式靠这个发货）
+        run: |
+          set -eu
+          cp dist/index.html dist/404.html dist/.nojekyll .
+          cp dist/static/* static/
+          cp dist/data/* data/
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A index.html 404.html .nojekyll static data
+          if git diff --staged --quiet; then
+            echo "仓库根上的产物已经是最新的, 不用提交"
+          else
+            git commit -m "chore(pages): 同步构建产物到仓库根 [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME:-master}"    # 万一 checkout 落在 detached HEAD 也能推
+            echo "已提交并推送(分支模式的 Pages 会在一两分钟内重新构建)"
+          fi
+
+      - name: Pages 走 Actions 吗（读配置）
         id: probe
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          owner="${GITHUB_REPOSITORY%%/*}"; repo="${GITHUB_REPOSITORY#*/}"
-          case "$repo" in
-            *.github.io) site="https://${repo}/" ;;                   # <org>.github.io 发在域名根
-            *)           site="https://${owner}.github.io/${repo}/" ;;
-          esac
-          echo "站点推测地址: $site"
           code=$(curl -s -o /tmp/pages.json -w '%{http_code}' \
                  -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-                 "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")
+                 "https://api.github.com/repos/$GITHUB_REPOSITORY/pages" || echo 000)
           echo "GET /repos/$GITHUB_REPOSITORY/pages -> $code $(head -c 120 /tmp/pages.json)"
-          # 判据用**内容指纹**, 不靠 API 字段: 仓库源码树里有 package.json, 构建产物里没有。
-          # (实测读 build_type 读不到, 但"站点正在发仓库树"这件事一眼能验:
-          #  /package.json -> 200 且首页没有 static/app.<hash>.js。)
-          pkg=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${site}package.json" || echo 000)
-          home=$(curl -sL -m 20 "$site" || true)
-          if printf '%s' "$home" | grep -q 'static/app\.'; then
-            echo "on=1" >> "$GITHUB_OUTPUT"
-            echo "  站点正在发构建产物 -> 照常发布"
-          elif [ "$pkg" = 200 ]; then
+          if [ "$code" = 404 ]; then
             echo "on=0" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Pages Source 是「分支」模式::${site} 正在发**仓库源码树**（能取到 package.json, 首页没有 index.html, 所以是 404）。去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'，再重跑本 workflow。本次只构建+自检, **不发布** —— 分支模式下发出去的 artifact 会被同一次 push 的分支构建覆盖(实测: 先取回是产物, 一分多钟后变回仓库树)。"
-          elif [ "$code" = 404 ]; then
-            echo "on=0" >> "$GITHUB_OUTPUT"
-            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'。本次只构建+自检, 不发布。"
+            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'（或选分支）。本次只构建+同步, 没走 Actions 发布。"
           else
-            # 首次发布(站点还没有产物, 也没有仓库树可判) / 探测被限流: 宁可试一次, 发布后有实测把关。
+            # 探测不到(403/限流/字段变化)也试一次 —— 发布后有"取回首页比对哈希"把关。
             echo "on=1" >> "$GITHUB_OUTPUT"
-            echo "::warning::判断不了 Pages 模式(API $code, package.json $pkg), 尝试发布 —— 发布后有实测把关。"
           fi
 
       - if: steps.probe.outputs.on == '1'
@@ -124,27 +125,21 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-      # 发布后**真的去站点取一次首页**, 并复核一次别被覆盖: deploy-pages 说"成功"不等于站点在发我们的东西
-      # (实测: 分支模式下 artifact 会被同一次 push 的分支构建覆盖; 取回首页必须能拿到引用
-      #  `static/app.<hash>.js` 的 index.html, 且 90 秒后仍然如此)。
-      - name: 发布后实测（取回首页 + 90 秒后复核）
+      # ② 出货判据: 站点上必须能取到**这一次构建的那份** index.html(按入口 JS 的哈希比对)。
+      #    Actions 模式几秒生效; 分支模式要等分支构建(约 1 分钟) —— 所以给足 5 分钟。
+      - name: 发布后实测（取回首页 + 比对哈希）
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
-          ok=0
-          for i in 1 2 3 4 5 6; do
+          want=$(grep -o 'static/app\.[0-9a-f]*\.js' dist/index.html | head -1 || true)
+          if [ -z "$want" ]; then echo "::error::dist/index.html 里找不到入口 JS 哈希"; exit 1; fi
+          echo "期望入口: $want"
+          got=""
+          for i in $(seq 1 15); do
             body=$(curl -sL -m 20 "$url" || true)
-            if printf '%s' "$body" | grep -q 'static/app\.'; then ok=1; echo "✓ 第 $i 次取回的是构建产物: $url"; break; fi
-            echo "  第 $i 次取回的不是构建产物, 等 20s 再试…"
+            got=$(printf '%s' "$body" | grep -o 'static/app\.[0-9a-f]*\.js' | head -1 || true)
+            if [ "$got" = "$want" ]; then echo "✓ $url 正在发这一次的构建产物(第 $i 次取回)"; exit 0; fi
+            echo "  第 $i 次: 站点上是 '${got:-无}', 还等 20s…"
             sleep 20
           done
-          if [ "$ok" != 1 ]; then
-            echo "::error title=站点没有在发构建产物::$url 取回来的不是我们的 index.html。最常见原因: Settings → Pages → Source 还不是 'GitHub Actions'。"
-            exit 1
-          fi
-          sleep 90
-          if curl -sL -m 20 "$url" | grep -q 'static/app\.'; then
-            echo "✓ 复核仍是构建产物, 站点稳定"
-          else
-            echo "::error title=站点被分支构建覆盖了::刚才取回的是构建产物, 90 秒后变成了仓库源码树 —— Pages 的 Source 还是「Deploy from a branch」。改成 'GitHub Actions' 再重跑。"
-            exit 1
-          fi
+          echo "::error title=站点没有发这一次的构建产物::$url 上取到的是 '${got:-空}'。分支模式下请确认这次提交里仓库根的 index.html 已更新(看上面『同步产物』那步); 想走 Actions 就把 Settings → Pages → Source 改成 'GitHub Actions'。"
+          exit 1
