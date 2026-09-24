@@ -61,7 +61,7 @@ jobs:
           grep -q 'window.JIANPU_READONLY=true;' dist/index.html
           echo "产物 OK: $(find dist -type f | wc -l) 个文件, $(du -sh dist | cut -f1)"
 
-      - name: Pages 启用了没有
+      - name: Pages 启用了没有 / 是不是 "GitHub Actions" 模式
         id: probe
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,14 +70,29 @@ jobs:
                  -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
                  "https://api.github.com/repos/${{ github.repository }}/pages")
           echo "GET /repos/${{ github.repository }}/pages -> $code"
+          echo "  $(head -c 200 /tmp/pages.json)"
           if [ "$code" = 200 ]; then
-            echo "on=1" >> "$GITHUB_OUTPUT"
+            # build_type: "workflow" = Source 选的是 GitHub Actions(我们要的);
+            #             "legacy"   = 发的是**某个分支的源码树** —— 那种模式下这个 artifact 根本不会上线,
+            #                          而 deploy-pages 仍然"成功"(2026-09-25 实测: 站点发的是仓库树,
+            #                          根目录没有 index.html, 于是首页 404, 但 run 是绿的)。
+            bt=$(grep -o '"build_type":"[a-z]*"' /tmp/pages.json | cut -d'"' -f4)
+            if [ "$bt" = "workflow" ]; then
+              echo "on=1" >> "$GITHUB_OUTPUT"
+            elif [ "$bt" = "legacy" ]; then
+              echo "on=0" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Pages Source 不是 'GitHub Actions'::当前 build_type='legacy'。去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'；之后重跑本 workflow 就会发布构建产物。现在这个模式发的是仓库源码树(根目录没有 index.html)，首页会是 404 —— 所以本次只构建+自检，不发布。"
+            else
+              # 200 但没给出 build_type(API 变了?) —— 宁可试一次(发布后有实测把关), 也别永远不发。
+              echo "on=1" >> "$GITHUB_OUTPUT"
+              echo "::warning::Pages 已启用但读不到 build_type(得到 '${bt:-空}'), 继续尝试发布。"
+            fi
           elif [ "$code" = 404 ]; then
             echo "on=0" >> "$GITHUB_OUTPUT"
-            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'；之后本 workflow 会自动发布到 https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/ 。本次只构建+自检，没有发布。"
+            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'。本次只构建+自检，没有发布。"
           else
             # 403/5xx: 探不出来(权限/限流)。这时**照常往下走** —— 真有问题让 configure-pages 报清楚,
-            # 总比"明明启用了却永远不发布"强。
+            # 总比"明明能用却永远不发布"强; 发布后还有一步"取回首页"的实测把关。
             echo "on=1" >> "$GITHUB_OUTPUT"
             echo "::warning::探测 Pages 状态得到 HTTP $code, 无法确定; 继续尝试发布。"
           fi
@@ -100,3 +115,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      # 发布后**真的去站点取一次首页**: deploy-pages 说"成功"不等于站点在发我们的东西
+      # (见上面 probe 那段 legacy 模式的坑)。取回来必须是我们那份 index.html(引用了
+      # `static/app.<hash>.js`), 否则响亮地失败并说清最可能的原因。
+      - name: 发布后实测（取回首页）
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          for i in 1 2 3 4 5 6; do
+            body=$(curl -sL -m 20 "$url" || true)
+            if printf '%s' "$body" | grep -q 'static/app\.'; then
+              echo "✓ $url 正在发构建产物（第 $i 次取回）"
+              exit 0
+            fi
+            echo "  第 $i 次取回的不是构建产物, 等 20s 再试…"
+            sleep 20
+          done
+          echo "::error title=站点没有在发构建产物::$url 取回来的不是我们的 index.html。最常见原因: Settings → Pages → Source 还不是 'GitHub Actions'（分支模式下发的是仓库源码树, 根目录没有 index.html, 所以首页 404）。"
+          exit 1
+
