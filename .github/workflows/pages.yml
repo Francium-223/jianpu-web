@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       pages: ${{ steps.probe.outputs.on }}
+      entry: ${{ steps.info.outputs.entry }}      # 这次构建的入口 JS(static/app.<hash>.js), 给 deploy job 比对
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +61,7 @@ jobs:
         run: node tools/build_dist.mjs --target gh --out dist
 
       - name: 产物断言
+        id: info
         run: |
           set -eu
           test -f dist/.nojekyll
@@ -67,7 +69,9 @@ jobs:
           cmp -s dist/404.html dist/index.html
           test -s dist/data/songs.jsonl.gz
           grep -q 'window.JIANPU_READONLY=true;' dist/index.html
-          echo "入口: $(grep -o 'static/app\.[0-9a-f]*\.js' dist/index.html | head -1)"
+          entry=$(grep -o 'static/app\.[0-9a-f]*\.js' dist/index.html | head -1)
+          echo "entry=$entry" >> "$GITHUB_OUTPUT"
+          echo "入口: $entry"
           echo "产物 OK: $(find dist -type f | wc -l) 个文件, $(du -sh dist | cut -f1)"
 
       # ① 分支模式要用: 把产物摊到仓库根(与源码不冲突: 产物是带内容哈希的文件名)。
@@ -130,8 +134,9 @@ jobs:
       - name: 发布后实测（取回首页 + 比对哈希）
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
-          want=$(grep -o 'static/app\.[0-9a-f]*\.js' dist/index.html | head -1 || true)
-          if [ -z "$want" ]; then echo "::error::dist/index.html 里找不到入口 JS 哈希"; exit 1; fi
+          # 期望值由 build job 传过来 —— 这个 job **没有 checkout**, 手上没有 dist/
+          want="${{ needs.build.outputs.entry }}"
+          if [ -z "$want" ]; then echo "::error::build job 没给出入口 JS 哈希(needs.build.outputs.entry 为空)"; exit 1; fi
           echo "期望入口: $want"
           got=""
           for i in $(seq 1 15); do
