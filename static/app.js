@@ -9,9 +9,9 @@ var IDX = null;
 
 function loadCorpus() {
   if (typeof DecompressionStream === 'undefined') {
-    return fetch('/data/songs.jsonl').then(function (r) { return r.text(); });
+    return fetch('./data/songs.jsonl').then(function (r) { return r.text(); });
   }
-  return fetch('/data/songs.jsonl.gz').then(function (r) {
+  return fetch('./data/songs.jsonl.gz').then(function (r) {
     return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text();
   });
 }
@@ -501,7 +501,7 @@ $('sfill').addEventListener('click', function () {
 
 loadCorpus().then(function (txt) {
   IDX = buildIndex(txt);
-  return fetch('/data/stats.json').then(function (r) { return r.json(); })
+  return fetch('./data/stats.json').then(function (r) { return r.json(); })
     .then(function (st) { loadPlatforms(st); return st; });
 }).then(function (st) {
   $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 个曲名组），' +
