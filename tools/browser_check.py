@@ -206,8 +206,11 @@ def cmd_spa(a):
         d.open(base + "/s/" + tid)
         ok(d.wait_js("document.querySelectorAll('#tune figure.page img').length>=2"),
            f"深链 /s/{tid} 出原图")
-        ok(d.js("return [...document.querySelectorAll('#tune figure.page img')]"
-                ".filter(function(i){return i.naturalWidth>0}).length") > 0,
+        # 图片是 lazy 的、还要走网络取: 必须**等它真解码**(naturalWidth>0)再断言 ——
+        # 元素一出现就立刻查, 在隧道/慢网下会假红(实测: 本机绿、走 Cloudflare 隧道红)。
+        # 注意: wait_js 自己会加 `return (…) ? 1 : 0;`, 这里只给表达式
+        ok(d.wait_js("[...document.querySelectorAll('#tune figure.page img')]"
+                     ".some(function(i){return i.naturalWidth>0})", 40),
            "原图真的解码出来了(naturalWidth>0)")
         ok(d.js("return document.querySelectorAll('#tune .score .bar').length") > 0,
            "原文里画了小节线")
