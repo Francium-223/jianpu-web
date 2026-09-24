@@ -1,7 +1,16 @@
 name: Deploy to GitHub Pages
 
-# 把 jianpu-web 发到 **GitHub Pages**: https://francium-223.github.io/jianpu-web/
-# （仓库名就是子路径 —— 站点整个住在 /jianpu-web/ 下, 这正是这条路要验的东西。）
+# 把前端发到 **GitHub Pages**。
+#
+# 2026-09-25 实测: 仓库已被改名/转移到组织站 **jianpu-db/jianpu-db.github.io** ——
+# 这种 `<org>.github.io` 仓库发在**域名根**上: https://jianpu-db.github.io/
+# （普通项目仓库才在子路径 `/jianpu-web/` 下; 两种位置我们的产物都支持 ——
+#   index.html 里那段内联 <base> 按"文档地址 = 应用根 + 可能多的 s/<id>"摆正相对路径,
+#   自检里跑的正是更难的子路径那种。）
+#
+# ⚠ Pages 的 **Source 必须是 "GitHub Actions"**。若还是"分支"模式, 站点发的会是**仓库源码树**
+#   (根目录没有 index.html -> 首页 404), 而 `actions/deploy-pages` 照样报成功 —— 所以下面
+#   probe 步骤会读 build_type, deploy 之后再取一次首页实测把关。
 #
 # 为什么这条不需要 wrangler/语料/Python: 产物是**纯静态**的 ——
 #   * 检索/卡片/谱页全在浏览器里跑, 不需要服务端;
