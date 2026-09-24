@@ -107,6 +107,8 @@ def main():
             "tags": r.get("tag") or [],
             "usertags": r.get("usertag") or [],
             "alias": r.get("alias") or [],
+            # 歌手(独立字段, 2026-09-24): 通用曲名靠它区分谁是谁
+            "artist": r.get("artist") or [],
             "transcriber": r.get("transcriber") or [],
         })
 

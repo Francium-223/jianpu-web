@@ -239,6 +239,7 @@ function metaRows(r) {
   var rows = [
     ['文件', r.file && r.file.length ? esc(list(r.file)) : '—'],
     ['曲名', esc(r.group)],
+    ['歌手', r.artist && r.artist.length ? esc(list(r.artist)) : '—'],
     ['状态', esc(r.status || '?') + (r.status === 'ok' ? '（人工校对过）'
       : r.status === 'ocr' ? '（图片机器转写）' : '')],
     ['音符', r.n + ' 个'],

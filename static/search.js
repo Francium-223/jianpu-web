@@ -31,7 +31,7 @@ export function buildIndex(text) {
       p: r.p, a: r.a || '', o: r.o || '', raw: r.raw || '', trunc: !!r.trunc,
       bars: r.bars || [], bpb: r.bpb || 4,
       file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
-      alias: r.alias || [], transcriber: r.transcriber || [],
+      alias: r.alias || [], artist: r.artist || [], transcriber: r.transcriber || [],
       // ⚠ 这几个以前漏在这里 -> 索引里明明有, 结果卡上永远看不到(同一类"白名单丢字段"):
       //   mbid  = MusicBrainz 录音页; links = 人工补的收录页; srcurl = 原谱站核对过的确切页
       mbid: r.mbid || '', links: r.links || [], srcurl: r.srcurl || '',
@@ -129,7 +129,7 @@ export function search(idx, segs, opt) {
       n: h.song.n, cost: r.total, exact: r.exact, qlen: n, at: h.at,
       raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars, bpb: h.song.bpb,
       file: h.song.file, tags: h.song.tags, usertags: h.song.usertags,
-      alias: h.song.alias, transcriber: h.song.transcriber, mbid: h.song.mbid,
+      alias: h.song.alias, artist: h.song.artist, transcriber: h.song.transcriber, mbid: h.song.mbid,
       links: h.song.links || [], srcurl: h.song.srcurl || '',
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
