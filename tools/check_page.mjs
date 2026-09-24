@@ -92,28 +92,31 @@ function fake(s, extra) {
                          srcurl: s.srcurl, links: s.links || [], source: s.source }, extra || {});
 }
 if (with_src) {
-  const h = app.exactLinks(fake(with_src));
+  const h = app.exactLinks(fake(with_src), 'melody');
   ok(h.includes('class="exact"') && h.includes(with_src.srcurl),
      `有原谱站确切页时渲染出精确链接 (${with_src.srcurl})`);
-  ok(h.includes('待补充：') && /网易云音乐/.test(h),
-     '只有原谱站页时, 点名还缺哪几个平台(待补充：网易云音乐/…)');
-  ok(!h.includes('收录页：待补充'), '已经有确切页时不再显示笼统的"收录页：待补充"');
+  // 用户口径(2026-09-24): 没收录的平台要写成**与已收录同形状的灰色片子** + 圆形 ＋, 而不是一串文字
+  ok(h.includes('class="exact pending"') && /网易云音乐/.test(h),
+     '没收录的平台渲染成灰色同形片子(网易云音乐…)');
+  ok(h.includes('class="plus"') && h.includes('data-ph='),
+     '灰片后面有圆形 ＋ 按钮(带该平台的占位提示)');
+  ok(h.includes('class="alrow"') && h.includes('class="al-go"'),
+     '卡片里有就地粘网址的输入行(保存后自动补充)');
+  ok(!h.includes('待补充：') && !/去找这一页/.test(h),
+     '不再写成"待补充：A/B/C"文字、也不再有"去找这一页"搜索行');
 }
 if (no_src) {
-  const h = app.exactLinks(fake(no_src));
-  ok(h.includes('收录页：待补充'), `一条确切页都没有时显示"收录页：待补充" (${no_src.title})`);
+  const h = app.exactLinks(fake(no_src), 'melody');
+  ok(h.includes('class="exact pending"'), `一条确切页都没有时, 四个平台全是灰色片子 (${no_src.title})`);
 }
 {
   const all = fake(no_src || with_src, { srcurl: 'http://www.jianpu.cn/pu/15/150657.htm', links: [
     'https://music.163.com/song?id=186016', 'https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV',
     'https://www.bilibili.com/video/BV1xx411c7mD', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'] });
-  const h = app.exactLinks(all);
+  const h = app.exactLinks(all, 'melody');
   ok(h.includes('网易云音乐') && h.includes('YouTube') && h.includes('song?id=186016'),
      '人工补的 links 会渲染成精确链接(站名由 host 认出来)');
-  ok(!h.includes('待补充'), '四个平台都补齐后不再显示"待补充"');
+  ok(!h.includes('class="exact pending"'), '四个平台都补齐后不再有灰色片子');
 }
-const sh = app.searchLinks(fake(with_src || no_src));
-ok(/search|results/.test(sh) && !sh.includes('class="exact"'),
-   '搜索链接那一行确实都是搜索 URL(与"收录页"分开渲染)');
 console.log(fail === 0 ? '\n高亮+收录页 自检 通过' : `\n高亮+收录页 自检 失败 ${fail} 项`);
 if (fail) process.exitCode = 1;

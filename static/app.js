@@ -48,10 +48,28 @@ function siteLabel(u) {
 
 /* **收录页**: 这首歌在那一站的**具体页面**。
  *   来源 = 人工补的 `link=`(可多个) + 原谱站核对过的具体页(srcurl) + MBID 对应的 MusicBrainz 录音页。
- * 用户口径(2026-09-23): 「我要的不是个自动跳转到搜索页面的按钮, 我要的是跳转到它具体收录的那一页」
- *   —— 所以这里**只放确切页面**; 搜索页由下面的 searchLinks() 单独一行, 明确标成"去找这一页"。
- *   一条都没有时, 显示"收录页：待补充"(而不是拿搜索按钮冒充)。 */
-export function exactLinks(r) {
+ * 用户口径(2026-09-24 定版):
+ *   * 已收录 -> 绿色片子(站名 ↗), 点开就是**那一页**(不是搜索页);
+ *   * 未收录 -> **形状一样的灰色片子**, 后面跟一个**圆形 ＋ 按钮**;
+ *   * 点 ＋ 就地粘网址, 保存后**自动补上**(片子变绿), 不用刷新页面。
+ *   搜索行("去哪里搜")**已按用户要求去掉** —— 搜索页不进语料, 也不该占版面。
+ */
+var PLATFORMS = [
+  ['网易云音乐', /music\.163\.com/, 'https://music.163.com/song?id=…'],
+  ['QQ音乐', /y\.qq\.com/, 'https://y.qq.com/n/ryqq/songDetail/…'],
+  ['B站', /bilibili\.com/, 'https://www.bilibili.com/video/…'],
+  ['YouTube', /youtube\.com|youtu\.be/, 'https://www.youtube.com/watch?v=…'],
+];
+var ALROW_N = 0;                       // 每张卡一个就地输入框, 用 id 串起来(不靠 DOM 遍历)
+
+function collectedUrls(r) {
+  var urls = [];
+  if (r.srcurl) urls.push(r.srcurl);
+  (r.links || []).forEach(function (u) { urls.push(u); });
+  return urls;
+}
+
+export function exactLinks(r, ctx) {
   var out = [], seen = {};
   function push(u, kind) {
     if (!u || seen[u]) return;
@@ -61,65 +79,35 @@ export function exactLinks(r) {
   if (r.mbid) push('https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid), 'MBID');
   if (r.srcurl) push(r.srcurl, '原谱站（已核对）');
   (r.links || []).forEach(function (u) { push(u, '收录页'); });
-  if (!out.length) {
-    return '<span class="todo" title="这一首还没有人补它在各站的具体页面">收录页：待补充</span>';
-  }
-  var chips = out.map(function (p) {
+
+  var urls = collectedUrls(r);
+  var f = (r.file && r.file[0]) || '';
+  var rid = 'alrow' + (++ALROW_N);
+  var html = out.map(function (p) {
     return '<a class="exact" href="' + p[1] + '" target="_blank" rel="noopener" title="' + esc(p[2]) +
       '">' + esc(p[0]) + ' ↗</a>';
   }).join('');
-  // 缺的平台点名(用户要的"待补充"标记): 有页面但缺网易云/B站/YT 时, 直接说缺哪几个
-  var pend = pendingPlatforms(r);
-  return chips + (pend.length
-    ? '<span class="todo" title="这几个站还没有确切页面, 等人补">待补充：' + esc(pend.join(' / ')) + '</span>'
-    : '');
+
+  // 缺的平台: 灰色片子(与已收录同形状) + 圆形 ＋
+  PLATFORMS.forEach(function (p) {
+    if (urls.some(function (u) { return p[1].test(u); })) return;
+    html += '<span class="exact pending" title="还没有确切页面">' + esc(p[0]) + '</span>' +
+      (f ? '<button type="button" class="plus" data-row="' + rid + '" data-ph="' + esc(p[2]) +
+           '" data-plat="' + esc(p[0]) + '" title="补 ' + esc(p[0]) + ' 的确切页面">＋</button>' : '');
+  });
+  if (f) {
+    html += '<button type="button" class="plus" data-row="' + rid + '" data-ph="https://…"' +
+      ' data-plat="其它站" title="补其它站的确切页面">＋</button>' +
+      '<span class="alrow" id="' + rid + '" hidden>' +
+        '<input class="al-url" placeholder="https://…" spellcheck="false" />' +
+        '<button class="al-go" data-file="' + esc(f) + '" data-re="' + esc(ctx || '') + '">保存</button>' +
+        '<span class="al-msg"></span></span>';
+  }
+  return html;
 }
 
-/* 四个"收录平台": 缺哪个就在"待补充"里点名(而不是笼统一句)。 */
-var PLATFORMS = [
-  ['网易云音乐', /music\.163\.com/],
-  ['QQ音乐', /y\.qq\.com/],
-  ['B站', /bilibili\.com/],
-  ['YouTube', /youtube\.com|youtu\.be/],
-];
-function pendingPlatforms(r) {
-  var urls = [];
-  if (r.srcurl) urls.push(r.srcurl);
-  (r.links || []).forEach(function (u) { urls.push(u); });
-  return PLATFORMS.filter(function (p) {
-    return !urls.some(function (u) { return p[1].test(u); });
-  }).map(function (p) { return p[0]; });
-}
-
-/* 搜索链接: 只是"去找这一页"的工具 —— **不是**收录页, 不进语料。
- * 用户要求保留在结果卡里(配上面的"待补充"标记一起看)。 */
-export function searchLinks(r) {
-  var q = encodeURIComponent(r.title || r.group);
-  var out = [
-    ['网易云', 'https://music.163.com/#/search/m/?s=' + q + '&type=1'],
-    ['QQ音乐', 'https://y.qq.com/n/ryqq/search?w=' + q],
-    ['B站', 'https://search.bilibili.com/all?keyword=' + q],
-    ['YouTube', 'https://www.youtube.com/results?search_query=' + q],
-    ['MusicBrainz', 'https://musicbrainz.org/search?query=' + q + '&type=recording'],
-  ];
-  return out.map(function (p) {
-    return '<a href="' + p[1] + '" target="_blank" rel="noopener">' + p[0] + '</a>';
-  }).join('');
-}
-
-/* 「＋ 补收录页」: 人工把**具体页面**的网址粘进来 -> 写进 scores/<file>.txt 的 link= 并重建索引。
- * 这是"人为补充"的入口; 命令行批量入口是 jianpu2/tools/add_link.py。 */
-function addLinkForm(r) {
-  var f = (r.file && r.file[0]) || '';
-  if (!f) return '';
-  return '<details class="addlink"><summary>＋ 补收录页</summary>' +
-    '<p class="hint">粘这首歌在某一站的<b>具体页面</b>网址（网易云 / QQ音乐 / B站 / YouTube…）。' +
-    '搜索页会被拒收 —— 上面那行搜索链接只用来帮你找到页面。</p>' +
-    '<input class="al-url" placeholder="https://music.163.com/song?id=…" spellcheck="false" />' +
-    '<button class="al-go" data-file="' + esc(f) + '">保存</button>' +
-    '<span class="al-msg"></span></details>';
-}
-
+/* 「＋ 补标签」: 人工给某一首加标签 —— 与补收录页同一套路(服务端写进曲谱 + 重建索引)。
+ * 分类用「分类/儿歌」这种既有约定; 输入框挂了 <datalist id="taglist"> 提示语料里已有的词表。 */
 /* 「＋ 补标签」: 人工给某一首加标签 —— 与「＋ 补收录页」同一套路(服务端写进曲谱 + 重建索引)。
  * 分类用「分类/儿歌」这种既有约定; 输入框挂了 <datalist id="taglist"> 提示语料里已有的词表。 */
 function addTagForm(r) {
@@ -293,9 +281,8 @@ function render(segs, res, ms) {
         '　<span class="lab">你的输入</span> ' + esc(show(r.qNotes)) + '</div>' +
       '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +
       '<div class="links">' +
-        '<span class="lab">收录页</span> ' + exactLinks(r) +
-        '<span class="find"><span class="lab">去找这一页</span> ' + searchLinks(r) + '</span>' +
-        addLinkForm(r) + addTagForm(r) +
+        '<span class="lab">收录页</span> ' + exactLinks(r, 'melody') +
+        addTagForm(r) +
         '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener" ' +
         'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +
       '</div></div>';
@@ -343,25 +330,38 @@ function renderTitle(list, q) {
         '<span class="badge">' + x.n + ' 音符</span>' +
         '<span class="badge">' + esc(x.status || '?') + '</span>' +
       '</div>' + metaRows(x) +
-      '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x) +
-        '<span class="find"><span class="lab">去找这一页</span> ' + searchLinks(x) + '</span>' +
-        addLinkForm(x) + addTagForm(x) + '</div>' +
+      '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x, 'title') +
+        addTagForm(x) + '</div>' +
       (x.raw ? '<div class="score">' + esc(x.raw) + '</div>' : '') +
       '</div>';
   }
   $('tout').innerHTML = html;
 }
 
+function rerunTitle() { renderTitle(titleSearch($('tq').value), $('tq').value); }
 if ($('tform')) {
   $('tform').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    renderTitle(titleSearch($('tq').value), $('tq').value);
+    rerunTitle();
   });
 }
 
 /* 「＋ 补收录页」的保存: 走已有投稿接口 -> 服务端校验后把 link=<url> 写进 scores/<file>.txt
  * 并 git commit, 再重建索引。返回值里的 file/commit/refresh 用来给用户回话。 */
 document.addEventListener('click', function (ev) {
+  // 圆形 ＋: 就地展开这一张卡的输入框, 并按平台给占位提示
+  var pb = ev.target && ev.target.closest ? ev.target.closest('.plus') : null;
+  if (pb) {
+    var row = document.getElementById(pb.getAttribute('data-row'));
+    if (row) {
+      row.hidden = false;
+      var pin = row.querySelector('.al-url');
+      if (pin) { pin.placeholder = pb.getAttribute('data-ph') || 'https://…'; pin.focus(); }
+      var pm = row.querySelector('.al-msg');
+      if (pm) { pm.textContent = ''; pm.className = 'al-msg'; }
+    }
+    return;
+  }
   // 「＋ 补标签」
   var tb = ev.target && ev.target.closest ? ev.target.closest('.al-go-tags') : null;
   if (tb) {
@@ -409,6 +409,11 @@ document.addEventListener('click', function (ev) {
         (j.committed ? '（已 git commit）' : '（未提交：' + (j.git || '未知原因') + '）') +
         (j.refresh ? '；' + (j.refresh_msg || '索引重建中，约 2 分钟后刷新可见') : '');
       inp.value = '';
+      // **输入后自动补充**: 重跑当前这次查询 -> 灰色片子立刻变成绿色真链接
+      var re = b.getAttribute('data-re') || '';
+      setTimeout(function () {
+        if (re === 'title') rerunTitle(); else run({ preventDefault: function () {} });
+      }, 400);
     } else {
       msg.className = 'al-msg err';
       msg.textContent = '失败：' + ((j && j.err) || '未知错误');

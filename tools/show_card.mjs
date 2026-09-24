@@ -50,6 +50,13 @@ for (const c of cards.slice(0, N)) {
     const v = m[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
     console.log('   ' + (m[1] + '：').padEnd(6) + v);
   }
-  const lk = (c.match(/class="lab">收录页<\/span>([\s\S]*?)(?:<\/p>|<\/div>)/) || [])[1] || '';
-  console.log('   收录页：' + lk.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80));
+  // 收录页那一行: 已收录=绿片, 未收录=灰片+圆形＋(用户口径 2026-09-24)
+  const lk = (c.match(/class="lab">收录页<\/span>([\s\S]*?)<span class="alrow"/) || [])[1] || '';
+  let line = '';
+  for (const m of lk.matchAll(/<a class="exact"[^>]*>([^<]*)<\/a>/g)) line += '[' + m[1].replace(' ↗', '') + ' ✓] ';
+  const grey = [...lk.matchAll(/<span class="exact pending"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
+  const plus = (lk.match(/class="plus"/g) || []).length;
+  if (grey.length) line += grey.map((g) => '[' + g + ' 待补]＋').join(' ') + ' ';
+  if (plus > grey.length) line += '[＋ 其它站]';
+  console.log('   收录页：' + (line.trim() || '(无)'));
 }
