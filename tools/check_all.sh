@@ -28,6 +28,13 @@ if command -v geckodriver >/dev/null 2>&1 || command -v firefox.geckodriver >/de
 else
   echo; echo "=== 浏览器交互自检 === (跳过: 没装 geckodriver)"
 fi
+# Cloudflare Worker 本地自检（真 workerd + 本地 R2）。需要 npm install 过 wrangler;
+# 比较慢(约 1.5 分钟), JIANPU_QUICK=1 时跳过。
+if [ -x node_modules/.bin/wrangler ] && [ "${JIANPU_QUICK:-0}" != "1" ]; then
+  run bash tools/check_worker.sh
+else
+  echo; echo "=== Worker 本地自检 === (跳过: $([ -x node_modules/.bin/wrangler ] && echo 'JIANPU_QUICK=1' || echo '没装 wrangler, 跑 npm install'))"
+fi
 echo
 [ "$fail" = 0 ] && echo "全部自检通过 —— $URL" || echo "有自检失败, 见上面 !! 处"
 exit $fail

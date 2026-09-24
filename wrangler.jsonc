@@ -1,0 +1,30 @@
+{
+  // 简谱旋律查歌 —— Cloudflare Workers 部署配置
+  // 本地:  npx wrangler dev            (miniflare, 本地 R2, 端口 8787)
+  // 部署:  npx wrangler deploy         (或让 Cloudflare 的 GitHub 集成在 push 后自己构建部署)
+  // 构建:  npm run build               (= node tools/build_dist.mjs, 只拼静态资源, 不需要 Python)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jianpu-web",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // /s/<id> 这类前端路由: 找不到文件就回 index.html（单页应用）
+    "not_found_handling": "single-page-application"
+  },
+  // 原图 5GB: 放 R2（免费额度 10GB, 出网不收钱）。桶名按你建的改。
+  // 先建桶:  npx wrangler r2 bucket create jianpu-images
+  // 传图:    python3 tools/r2_filelist.py && bash tools/r2_sync.sh
+  "r2_buckets": [
+    { "binding": "IMAGES", "bucket_name": "jianpu-images" }
+  ],
+  // 投稿后端（可选）: 本机 app/server.py 的公网地址, 例如 https://jpt-api.example.com
+  //   npx wrangler secret put API_UPSTREAM
+  //   npx wrangler secret put API_TOKEN        # 与本机 JPSUBMIT_TOKEN 同一个值
+  // 不配也能跑: 检索/卡片/谱页/原图全部在边缘, 只有"投稿"会回一句"没有投稿后端"。
+  "vars": {
+    "API_UPSTREAM": ""
+  },
+  "observability": { "enabled": true }
+}
