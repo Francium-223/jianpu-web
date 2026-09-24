@@ -715,9 +715,9 @@ loadCorpus().then(function (txt) {
   return fetch(appUrl('data/stats.json')).then(function (r) { return r.json(); })
     .then(function (st) { loadPlatforms(st); return st; });
 }).then(function (st) {
-  $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 个曲名组），' +
-    st.notes.toLocaleString() + ' 个音符，含变音记号 ' + st.with_accidental + ' 首' +
-    (st.with_images ? '，' + st.with_images + ' 首有原图（' + st.image_pages + ' 页）' : '') + '。';
+  // 只报"有多少东西可查"; 原图那栏早去掉了, 别再提(2026-09-25 用户: 文案从简)。
+  $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 组），' +
+    st.notes.toLocaleString() + ' 个音符。';
   $('status').textContent = '就绪，共 ' + IDX.count + ' 首。';
   fillTagList();
   // 深链: 直接打开 /s/<id> 也要能渲出那一页(先把语料装上, 再按地址路由)
