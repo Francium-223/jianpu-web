@@ -1,0 +1,123 @@
+/* 简谱旋律查歌 —— 极简、克制; 结果卡用表格摊开全部元数据。 */
+:root { --fg: #1f2328; --dim: #57606a; --line: #e4e6ea; --accent: #0b62c4; }
+* { box-sizing: border-box; }
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+       margin: 0; color: var(--fg); background: #fff; line-height: 1.65; font-size: 16px; }
+.wrap { max-width: 52rem; margin: 0 auto; padding: 1.75rem 1.1rem 4rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .45rem; }
+h2 { font-size: 1rem; margin: 1.8rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+p { margin: .45rem 0; }
+.lead { color: var(--dim); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; background: #f4f5f7; padding: .08em .3em; border-radius: 3px; }
+
+form { margin: 1rem 0 .5rem; }
+input[type=text] { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.02rem;
+  padding: .5rem .6rem; width: min(28rem, 100%); border: 1px solid #c6ccd4; border-radius: 6px; }
+input[type=text]:focus { outline: 2px solid #bcd7f5; border-color: #7fb0e8; }
+select, button { font: inherit; padding: .42rem .8rem; border-radius: 6px; border: 1px solid #c6ccd4; background: #fff; }
+button[type=submit], #go { background: var(--accent); border-color: var(--accent); color: #fff; cursor: pointer; }
+button:hover { filter: brightness(.97); }
+button:disabled { opacity: .55; cursor: default; }
+.examples { color: var(--dim); font-size: .9rem; }
+.examples a { margin-right: .7rem; white-space: nowrap; }
+.status { margin: 1rem 0 .2rem; color: var(--dim); font-size: .9rem; }
+.status.err { color: #b42318; }
+
+.card { border: 1px solid var(--line); border-radius: 8px; padding: .85rem 1rem; margin: .8rem 0; }
+.card.top { border-color: #a7d7bb; background: #f7fdf9; }
+.head { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; }
+.rank { color: var(--dim); font-size: .85rem; }
+.title { font-size: 1.08rem; font-weight: 650; }
+.badge { font-size: .78rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+.cost { font-variant-numeric: tabular-nums; font-weight: 650; }
+.cost.c0 { color: #177245; } .cost.c1 { color: #946200; } .cost.c2 { color: #b42318; }
+
+/* 元数据全摊开 */
+table.meta { border-collapse: collapse; margin: .5rem 0 .2rem; font-size: .88rem; width: 100%; }
+table.meta th { text-align: left; font-weight: 500; color: var(--dim); padding: .1rem .6rem .1rem 0;
+  white-space: nowrap; vertical-align: top; width: 4.5em; }
+table.meta td { padding: .1rem 0; vertical-align: top; word-break: break-word; }
+
+.cmp { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .88rem; margin-top: .5rem; color: #3a4149; }
+.cmp .lab { color: var(--dim); font-family: system-ui, sans-serif; font-size: .84rem; }
+.score { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9rem; margin-top: .35rem;
+  color: #384049; word-break: break-all; max-height: 10rem; overflow: auto; padding: .4rem .55rem;
+  background: #fafbfc; border: 1px solid var(--line); border-radius: 5px; }
+.score mark { background: #ffe58f; font-weight: 700; color: #111; padding: 0 1px; border-radius: 2px; }
+.score .bar { color: #9aa4b2; margin: 0 .15em; }
+.links { margin-top: .55rem; display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; }
+.links a { font-size: .84rem; border: 1px solid var(--line); border-radius: 999px; padding: .1rem .55rem; }
+.links a:hover { border-color: var(--accent); text-decoration: none; }
+.links .add { color: var(--dim); }
+.links .add:hover { color: var(--accent); }
+
+/* 收录页(确切页面) vs 去找这一页(搜索链接): 视觉上必须一眼分得开 */
+.links .exact { background: #eef7ee; border-color: #b7dcb7; color: #1c5c1c; font-weight: 500; }
+.links .exact:hover { border-color: #1c5c1c; }
+.links .todo { font-size: .84rem; color: #a15c00; background: #fff6e5; border: 1px dashed #e0b070;
+  border-radius: 999px; padding: .1rem .55rem; }
+/* 未收录的平台: **与已收录同形状**, 只是灰的(用户口径 2026-09-24) —— 不再写成"待补充：A/B/C"一串文字 */
+/* 未收录: **与已收录同形状的黄色片子**, 点进去是该平台的搜索页(用户口径 2026-09-24) */
+.links .exact.pending { background: #fff8e1; border-color: #f0d489; color: #8a6100; font-weight: 500; }
+.links .exact.pending:hover { border-color: #d9a300; }
+/* 灰色片子后面那颗**圆形 ＋**: 点了就地粘网址, 保存后自动变绿 */
+.links .plus { width: 1.45rem; height: 1.45rem; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: #fff; color: var(--dim);
+  font-size: .95rem; line-height: 1; cursor: pointer; }
+.links .plus:hover { border-color: #1c5c1c; color: #1c5c1c; }
+.alrow { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
+.alrow[hidden] { display: none; }
+.alrow input.al-url { width: min(30rem, 88%); font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .84rem; padding: .2rem .45rem; border: 1px solid var(--line); border-radius: 5px; }
+.alrow button.al-go { font-size: .84rem; padding: .2rem .7rem; border-radius: 5px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+.alrow button.al-go[disabled] { opacity: .5; cursor: default; }
+.addlink { font-size: .84rem; color: var(--dim); }
+.addlink summary { cursor: pointer; border: 1px solid var(--line); border-radius: 999px;
+  padding: .1rem .55rem; display: inline-block; }
+.addlink[open] { flex-basis: 100%; }
+.addlink .hint { margin: .35rem 0; }
+.addlink input.al-url { width: min(28rem, 92%); font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: .84rem; padding: .2rem .45rem; border: 1px solid var(--line); border-radius: 5px; }
+.addlink button.al-go { margin-left: .3rem; font-size: .84rem; padding: .2rem .7rem; border-radius: 5px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+.addlink button.al-go[disabled] { opacity: .5; cursor: default; }
+.al-msg { margin-left: .5rem; }
+.al-msg.ok { color: #177245; }
+.al-msg.err { color: #b42318; }
+.hint { color: var(--dim); font-size: .85rem; margin-top: .6rem; }
+footer { color: #6b7280; font-size: .84rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }
+
+/* ================= 「每谱一页」 `/s/<id>` =================
+   单栏: 标题/副行 -> 全部元数据 + 收录页 + 补标签 -> 带小节线的原文。
+   没有"原图"那一栏（用户口径 2026-09-24: 不转存扫描件、不外链图片 —— 原站页面地址在
+   「出处」和「收录页」里, 信息不丢）。 */
+#home[hidden], #tune[hidden] { display: none; }
+.crumb { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+  font-size: .88rem; color: var(--dim); margin: 0 0 .35rem; }
+.crumb .dim { color: #9aa4b2; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .84rem; }
+.tune-h1 { font-size: 1.5rem; margin: 0 0 .2rem; }
+.tune-sub { color: var(--dim); font-size: .9rem; margin: 0 0 1.1rem; }
+/* 卡片里那颗「本谱一页」: 与「收录页」片子同形状, 但它是**站内跳转**(不新开标签) */
+.links .tune-link { background: #eef3fd; border-color: #b9cdf0; color: #14448a; font-weight: 500; }
+.links .tune-link:hover { border-color: #14448a; }
+/* 卡片标题也是通向那一页的链接: 保持标题的样子, 别整片蓝 */
+a.title { color: inherit; }
+a.title:hover { color: var(--accent); text-decoration: underline; }
+/* 谱页: 看原图要的是宽度, 首页那 52rem 的窄栏放不下一张扫描件 */
+body.tune-mode .wrap { max-width: 78rem; }
+body.tune-mode .lead, body.tune-mode .examples { max-width: 46rem; }
+
+/* 「去原站看这一页的原图」—— 没有任何本地扫描件时的主按钮(用户口径: 不转存扫描件) */
+.viewer p.orig { margin: .7rem 0 .5rem; }
+.viewer a.goto { display: inline-block; padding: .5rem .95rem; border-radius: 8px;
+  background: var(--accent); color: #fff; font-weight: 600; }
+.viewer a.goto:hover { text-decoration: none; filter: brightness(1.06); }
+
+/* 「原谱原文」= 曲谱文件正文**一字不差**(monospace + 保留换行/空行) */
+pre.sheet { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .86rem;
+  line-height: 1.6; color: #384049; background: #fafbfc; border: 1px solid var(--line);
+  border-radius: 6px; padding: .6rem .7rem; margin: .3rem 0 0; white-space: pre-wrap;
+  word-break: break-word; max-height: 34rem; overflow: auto; }

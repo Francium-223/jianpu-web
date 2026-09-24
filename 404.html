@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>简谱旋律查歌</title>
+<!-- ⚠ 这一小段必须留在**最前面**, 而且必须是内联的(不能搬进 app.js)。
+     为什么: 谱页的地址是 `/s/<id>`, 在这个地址上相对路径 `./static/app.1be2b61d.js` 会被浏览器解析成
+     `/s/static/app.js`(404) -> 深链/刷新整片白屏(2026-09-24 实测)。这里按"文档地址 = 应用根 +
+     可能是 s/<id>"把 <base> 摆正, 后面所有相对路径就都对得上了; 部署到子目录
+     (如 user.github.io/jianpu-web/) 也照样对 —— 不用按部署位置改 HTML。 -->
+<script>
+(function () {
+  var p = location.pathname, m = /^(.*\/)s\/[^/]+\/?$/.exec(p);
+  var root = m ? m[1] : p.slice(0, p.lastIndexOf('/') + 1);   // 去掉末尾的 s/<id> 或文件名
+  var b = document.createElement('base');
+  b.href = root || '/';
+  var h = document.head || document.getElementsByTagName('head')[0];
+  h.insertBefore(b, h.firstChild);
+})();
+</script>
+<link rel="stylesheet" href="./static/style.3b17f67f.css">
+<script>window.JIANPU_READONLY=true;</script>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 「每谱一页」的容器: /s/<id> 深链时由 app.js 填内容, 首页整块 #home 藏起来。
+       地址栏 / 分享 / 刷新都落在这个地址上(服务端把同一个 index.html 发出来)。 -->
+  <div id="tune" hidden></div>
+
+  <div id="home">
+
+  <h1>简谱旋律查歌</h1>
+  <p class="lead">输入一段旋律的<strong>唱名数字</strong>（1–7），查出它是哪首歌。
+    不需要写时值或八度记号（<code>#5</code>、<code>,6</code>、<code>'1</code> 写了更准）。
+    空格不分段；用逗号/分号/竖线分成多段会更准。</p>
+
+  <form id="form">
+    <input type="text" id="q" autocomplete="off" placeholder="例如 63731232 或 55532235,3211612655">
+    <button type="submit" id="go">查</button>
+  </form>
+
+  <p class="examples">例子：
+    <a href="#" class="ex" data-q="63731232">63731232</a>
+    <a href="#" class="ex" data-q="55532235 3211612655">55532235 3211612655</a>
+    <a href="#" class="ex" data-q="66165535 532322 7656">66165535 532322 7656</a>
+    <a href="#" class="ex" data-q="5111156711">5111156711</a>
+  </p>
+
+  <p id="status" class="status">正在加载语料…</p>
+  <div id="out"></div>
+
+  <h2>按曲名找</h2>
+  <p class="lead">想给<b>某一首</b>补收录页/标签、或核对元数据时用这里：按曲名（或别名）调出它的卡片。
+    卡片里的「收录页」是确切页面，缺的会点名"待补充"；旁边可以直接粘贴链接保存。
+    卡片标题和「本谱一页」都通向这首的<b>独立页面</b>（原图 + 全部元数据）。</p>
+  <form id="tform">
+    <input type="text" id="tq" autocomplete="off" placeholder="例如 神々 / 月亮代表我的心 / 上春山">
+    <button type="submit" id="tgo">找</button>
+  </form>
+  <p id="tstatus" class="status"></p>
+  <div id="tout"></div>
+
+  <h2>投稿 / 纠错（不用登录）</h2>
+  <p class="lead">三件事：<b>推荐收录</b>（库里没有的歌）、<b>纠错</b>（这一首转错了）、<b>元数据</b>（曲名/出处/标签不对）。
+    填完点一下就行 —— 投稿会直接落到服务端并入库，<b>不需要 GitHub 账号，也不需要打开 GitHub</b>。<br>
+    选<b>纠错</b>/<b>元数据</b>时会自动带上你<b>刚才查询命中的那一份曲谱</b>（先在上面查一次），作者就知道你说的是哪一份。</p>
+
+  <form id="sform">
+    <p>
+      <label for="skind">类型</label>
+      <select id="skind">
+        <option value="new">推荐收录（库里没有）</option>
+        <option value="fix">纠错（这首转错了）</option>
+        <option value="meta">元数据（曲名/出处/标签不对）</option>
+      </select>
+    </p>
+    <p>
+      <label for="stitle">曲名</label>
+      <input type="text" id="stitle" size="30" placeholder="必填">
+      <button type="button" id="sfill">用刚才查询的曲名填入</button>
+    </p>
+    <p>
+      <label for="sscore">这段旋律的简谱数字（可选，但填了最有价值：会直接生成一份曲谱入库）</label><br>
+      <input type="text" id="sscore" size="46" placeholder="例如 63731232">
+    </p>
+    <p>
+      <label for="snote">说明（可选）：原谱链接、哪里不对、你听到的是什么…</label><br>
+      <input type="text" id="snote" size="46">
+    </p>
+    <p>
+      <label for="scontact">联系方式（可选，想被回复时填）</label>
+      <input type="text" id="scontact" size="20">
+      <button type="submit" id="sgo">提交</button>
+    </p>
+  </form>
+  <p id="sstatus" class="status"></p>
+
+  <footer>
+    <span id="stats"></span><br>
+    检索：滑窗逐音比较（代价模型：自然↔自然 0、自然↔带记号 1、写了记号却没对上 2、音级不同 4）
+    → 按曲名归组取组内最优 → 热度破并列。查询完全在本地浏览器里跑，不联网。<br>
+    数据来自 <a href="https://huggingface.co/datasets/Caesium-132/chinese-jianpu-corpus" target="_blank" rel="noopener">chinese-jianpu-corpus</a>。
+    投稿走本服务，不依赖 GitHub；服务不在线时表单会自动给出 GitHub 兜底链接。
+  </footer>
+
+  </div><!-- /#home -->
+
+  <!-- 标签词表: 补标签的输入框都挂它(首页/谱页共用), 所以放在两个容器外面 -->
+  <datalist id="taglist"></datalist>
+
+</div>
+<script src="./static/app.1be2b61d.js" type="module"></script>
+</body>
+</html>

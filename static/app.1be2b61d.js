@@ -1,0 +1,735 @@
+import { buildIndex, search } from './search.dc015505.js';
+import { parseQuery, parseToken, isPitch, show } from './jptok.7c4febcf.js';
+
+/* 数据侧: 只需要"曲名 + 出处" 就能给出可点的外链 —— 不依赖任何 API/key */
+var REPO = 'Francium-223/jianpu-db';
+
+/* **应用根**: 从本模块自己的地址推出来(`<根>/static/app.js` 的上一级)。
+ * 为什么非这样不可: 「每谱一页」的地址是 `/s/<id>`, 在**这个地址上打开/刷新**时, 相对路径
+ * `./data/x` 会被浏览器解析成 `/s/data/x`(404) —— 深链直接白屏。用 import.meta.url 推出根目录后,
+ * 不管部署在域名根、子目录, 还是 `/s/<id>` 这种深链, 数据与跳转都落在同一个根上。 */
+var ROOT_URL = new URL('../', import.meta.url);
+var APP_PATH = ROOT_URL.pathname.replace(/\/+$/, '/');        // '/' 或 '/子目录/'
+function appUrl(rel) { return new URL(rel, ROOT_URL).toString(); }
+function appPath(rel) { return new URL(rel, ROOT_URL).pathname; }
+function tunePath(id) { return appPath('s/' + encodeURIComponent(id)); }
+
+
+function $(id) { return document.getElementById(id); }
+var IDX = null;
+
+function loadCorpus() {
+  if (typeof DecompressionStream === 'undefined') {
+    return fetch(appUrl('data/songs.jsonl')).then(function (r) { return r.text(); });
+  }
+  return fetch(appUrl('data/songs.jsonl.gz')).then(function (r) {
+    // 两种服务端行为都得认:
+    //   ① 替我们解好并带 `Content-Encoding: gzip`(某些静态托管会这么干) -> 直接读文本;
+    //   ② 原样发 gzip 字节(Cloudflare Pages 就是这样) -> 自己解。
+    // 头/方法都不是必然存在(自检里的假 fetch 就只有 `{ok, body}`), 所以每处先问一句再说 ——
+    // 2026-09-25 就是把 `r.headers.get` 当成必然存在, 初始化当场炸, 被 check_render/page/ui/tune 抓到。
+    if (r.headers && r.headers.get && /gzip/i.test(r.headers.get('content-encoding') || '')) return r.text();
+    // 用 clone 是为了"解压失败还能回头读原文"(有托管把 .gz 当纯文本发); 没有 clone 就用原 body。
+    var body = (typeof r.clone === 'function') ? r.clone().body : r.body;
+    return new Response(body.pipeThrough(new DecompressionStream('gzip'))).text()
+      .catch(function () { return (typeof r.text === 'function') ? r.text() : ''; });
+  });
+}
+
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+function sourceUrl(src) {
+  var host = String(src || '').split('-')[0];
+  var m = { qupu123: 'https://www.qupu123.com/', jianpucn: 'http://www.jianpu.cn/',
+            jianpujia: 'https://www.jianpujia.com/' };
+  return m[host] || '';
+}
+
+/* 站点标签: 从 URL 的 host 认(不靠人的命名习惯) */
+var SITE_LABELS = [
+  [/music\.163\.com/, '网易云音乐'],
+  [/y\.qq\.com/, 'QQ音乐'],
+  [/bilibili\.com/, 'B站'],
+  [/youtube\.com|youtu\.be/, 'YouTube'],
+  [/musicbrainz\.org/, 'MusicBrainz'],
+  [/jianpu\.cn/, '歌谱简谱网'],
+  [/jianpujia\.com/, '简谱之家'],
+  [/qupu123\.com/, '中国曲谱网'],
+  [/qinyipu\.com/, '琴艺谱'],
+];
+function siteLabel(u) {
+  for (var i = 0; i < SITE_LABELS.length; i++) if (SITE_LABELS[i][0].test(u)) return SITE_LABELS[i][1];
+  try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return '链接'; }
+}
+
+/* **收录页**: 这首歌在那一站的**具体页面**。
+ *   来源 = 人工补的 `link=`(可多个) + 原谱站核对过的具体页(srcurl) + MBID 对应的 MusicBrainz 录音页。
+ * 用户口径(2026-09-24 定版):
+ *   * 已收录 -> 绿色片子(站名 ↗), 点开就是**那一页**(不是搜索页);
+ *   * 未收录 -> **形状一样的灰色片子**, 后面跟一个**圆形 ＋ 按钮**;
+ *   * 点 ＋ 就地粘网址, 保存后**自动补上**(片子变绿), 不用刷新页面。
+ *   搜索行("去哪里搜")**已按用户要求去掉** —— 搜索页不进语料, 也不该占版面。
+ */
+// **单一真源在 `jianpu-db/schema.py` 的 PLATFORMS**(搜索页格式只写一处), 经 data/stats.json 带过来。
+// 下面这张只是"stats 还没加载 / 独立部署 web"时的兜底, 字段顺序: [名, 认领正则, 粘确切页的提示, 搜索页模板]
+var PLATFORMS = [
+  ['网易云音乐', /music\.163\.com/, 'https://music.163.com/song?id=…', 'https://music.163.com/#/search/m/?s={q}&type=1'],
+  ['QQ音乐', /y\.qq\.com/, 'https://y.qq.com/n/ryqq/songDetail/…', 'https://y.qq.com/n/ryqq/search?w={q}'],
+  ['B站', /bilibili\.com/, 'https://www.bilibili.com/video/…', 'https://search.bilibili.com/all?keyword={q}'],
+  ['YouTube', /youtube\.com|youtu\.be/, 'https://www.youtube.com/watch?v=…', 'https://www.youtube.com/results?search_query={q}'],
+  ['MusicBrainz', /musicbrainz\.org/, 'https://musicbrainz.org/recording/…', 'https://musicbrainz.org/search?query={q}&type=recording'],
+];
+function loadPlatforms(st) {
+  if (!st || !st.platforms || !st.platforms.length) return;
+  try {
+    PLATFORMS = st.platforms.map(function (p) {
+      return [p.name, new RegExp(p.host || '.', 'i'), p.exact || 'https://…', p.search || ''];
+    });
+  } catch (e) { /* 保持内建兜底 */ }
+}
+var ALROW_N = 0;                       // 每张卡一个就地输入框, 用 id 串起来(不靠 DOM 遍历)
+
+function collectedUrls(r) {
+  var urls = [];
+  if (r.srcurl) urls.push(r.srcurl);
+  (r.links || []).forEach(function (u) { urls.push(u); });
+  return urls;
+}
+
+export function exactLinks(r, ctx) {
+  var out = [], seen = {};
+  function push(u, kind) {
+    if (!u || seen[u]) return;
+    seen[u] = 1;
+    out.push([siteLabel(u), u, kind]);
+  }
+  if (r.mbid) push('https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid), 'MBID');
+  if (r.srcurl) push(r.srcurl, '原谱站（已核对）');
+  (r.links || []).forEach(function (u) { push(u, '收录页'); });
+
+  var urls = collectedUrls(r);
+  var f = (r.file && r.file[0]) || '';
+  var rid = 'alrow' + (++ALROW_N);
+  var html = out.map(function (p) {
+    return '<a class="exact" href="' + p[1] + '" target="_blank" rel="noopener" title="' + esc(p[2]) +
+      '">' + esc(p[0]) + ' ↗</a>';
+  }).join('');
+
+  // 缺的平台: **黄色片子(与已收录同形状)**, 点进去是**该平台的搜索页**(帮人去找);
+  // 旁边那颗圆形 ＋ 是"把确切页粘进来"(存下后片子变绿)。搜索页格式来自 schema.py。
+  var qq = encodeURIComponent(r.title || r.group || '');
+  PLATFORMS.forEach(function (p) {
+    if (urls.some(function (u) { return p[1].test(u); })) return;
+    var href = (p[3] || '').replace('{q}', qq);
+    html += '<a class="exact pending" href="' + href + '" target="_blank" rel="noopener"' +
+      ' title="还没收录 —— 点开去 ' + esc(p[0]) + ' 搜这首歌">' + esc(p[0]) + '</a>' +
+      (f ? '<button type="button" class="plus" data-row="' + rid + '" data-ph="' + esc(p[2]) +
+           '" data-plat="' + esc(p[0]) + '" title="补 ' + esc(p[0]) + ' 的确切页面">＋</button>' : '');
+  });
+  if (f) {
+    html += '<button type="button" class="plus" data-row="' + rid + '" data-ph="https://…"' +
+      ' data-plat="其它站" title="补其它站的确切页面">＋</button>' +
+      '<span class="alrow" id="' + rid + '" hidden>' +
+        '<input class="al-url" placeholder="https://…" spellcheck="false" />' +
+        '<button class="al-go" data-file="' + esc(f) + '" data-re="' + esc(ctx || '') + '">保存</button>' +
+        '<span class="al-msg"></span></span>';
+  }
+  return html;
+}
+
+/* 「＋ 补标签」: 人工给某一首加标签 —— 与补收录页同一套路(服务端写进曲谱 + 重建索引)。
+ * 分类用「分类/儿歌」这种既有约定; 输入框挂了 <datalist id="taglist"> 提示语料里已有的词表。 */
+/* 「＋ 补标签」: 人工给某一首加标签 —— 与「＋ 补收录页」同一套路(服务端写进曲谱 + 重建索引)。
+ * 分类用「分类/儿歌」这种既有约定; 输入框挂了 <datalist id="taglist"> 提示语料里已有的词表。 */
+function addTagForm(r) {
+  var f = (r.file && r.file[0]) || '';
+  if (!f) return '';
+  return '<details class="addlink"><summary>＋ 补标签</summary>' +
+    '<p class="hint">给这首加标签（多个用逗号）。分类写「分类/儿歌」「分类/民歌」这种；' +
+    '歌手直接写名字（如「邓丽君」）。输入时会提示语料里已有的标签。</p>' +
+    '<input class="al-url at-tags" list="taglist" placeholder="分类/儿歌, 邓丽君" spellcheck="false" />' +
+    '<button class="al-go-tags" data-file="' + esc(f) + '">保存</button>' +
+    '<span class="al-msg"></span></details>';
+}
+
+/* 把语料里已有的标签灌进 <datalist id="taglist">, 让补标签时口径一致 */
+function fillTagList() {
+  var dl = $('taglist');
+  if (!dl || !IDX) return;
+  var set = {};
+  for (var i = 0; i < IDX.songs.length; i++) {
+    (IDX.songs[i].tags || []).forEach(function (t) { set[t] = 1; });
+    (IDX.songs[i].usertags || []).forEach(function (t) { set[t] = 1; });
+  }
+  dl.innerHTML = Object.keys(set).sort().map(function (t) {
+    return '<option value="' + esc(t) + '"></option>';
+  }).join('');
+}
+
+/* 「＋ 库里没有这首」: 预填一个 GitHub Issue 表单, 点一下就能提(用户自己确认后提交) */
+function issueUrl(text) {
+  return 'https://github.com/' + REPO + '/issues/new?title=' +
+    encodeURIComponent('[缺谱] ' + text) +
+    '&body=' + encodeURIComponent(
+      '想加的曲子:' + text + '\n\n' +
+      '(可选) 原谱链接或图片:\n\n' +
+      '(可选) 这段旋律的简谱数字:\n\n' +
+      '---\n由简谱旋律查歌前端自动填写\n');
+}
+
+/* 把原谱原文渲染成 HTML。
+ *   at/qlen 给了 -> 把"命中段"标黑(检索结果卡用);
+ *   at 传 null   -> **只画小节线**, 不标黑(每谱一页用: 那是整首谱, 没有"命中段")。
+ *
+ * **必须用 isPitch 判"第几个音符"**: 索引里的 `at`/`bars`/`n` 数的是"第几个**有音高**的音符",
+ * 而 raw 里混着休止/念白(`c0`/`q0`/`x`)、时值前缀、小节线 `|`、延长 `-`。
+ * 这里踩过两次坑:
+ *   ① 早先抄了一条**窄**正则, 把 `q3` 判成"不是音符" -> 高亮跑到别处(用户实测: 搜 623532 却标出 `q5 s5 q,5. …`);
+ *   ② 后来改用 parseToken, 但它对 `c0`(休止)也返回非空 -> **休止被当成音符**,
+ *      高亮与小节线整体前移(用户实测: th10_06 开头 `c0 q0` 被误标黑, 第一条 `|` 画到 `q3 q3` 之后)。
+ * 口径只能有一份: jptok.isPitch。
+ */
+export function renderScore(raw, at, qlen, bars) {
+  if (!raw) return '';
+  var toks = raw.split(' ');
+  var barSet = {};
+  (bars || []).forEach(function (b) { barSet[b] = 1; });
+  var mark = (at !== null && at !== undefined && at >= 0);
+  var startTok = -1, endTok = -1;
+  if (mark) {
+    var noteIdx = -1;
+    for (var i = 0; i < toks.length; i++) {
+      if (isPitch(toks[i])) {
+        noteIdx++;
+        if (noteIdx === at) startTok = i;
+        if (noteIdx === at + qlen - 1) endTok = i;
+      }
+    }
+    if (startTok < 0) return esc(raw);
+    if (endTok < 0) endTok = toks.length - 1;
+  }
+  var ni = -1, html = [];
+  for (var j = 0; j < toks.length; j++) {
+    // 小节线画在"它之前的那条"位置: bars 里记的是音符下标
+    var isNote = isPitch(toks[j]);
+    if (isNote) ni++;
+    if (isNote && barSet[ni] && !(mark && j === startTok)) html.push('<span class="bar">|</span> ');
+    if (mark && j === startTok) html.push('<mark>');
+    if (mark && j === endTok + 1) html.push('</mark>');
+    html.push(esc(toks[j]));
+    if (j < toks.length - 1) html.push(' ');
+  }
+  if (mark && endTok + 1 >= toks.length) html.push('</mark>');
+  return html.join('');
+}
+
+function run(e) {
+  if (e) e.preventDefault();
+  if (!IDX) return;
+  var segs = [];
+  var parts = $('q').value.split(/[;；|、+，,]+/);
+  for (var i = 0; i < parts.length; i++) {
+    var s = parseQuery(parts[i]);
+    if (s.length >= 5) segs.push(s);
+  }
+  if (!segs.length) {
+    $('status').className = 'status err';
+    $('status').textContent = '请至少输入 5 个音（只认 1-7；可带 # 或 b）。空格不分段，逗号/分号/竖线分段。';
+    return;
+  }
+  $('status').className = 'status';
+  $('status').textContent = '查询中…';
+  $('go').disabled = true;
+  setTimeout(function () {
+    var t0 = performance.now();
+    var res = search(IDX, segs, { top: 10 });
+    render(segs, res, Math.round(performance.now() - t0));
+    $('go').disabled = false;
+  }, 20);
+}
+
+/* 元数据全摊开: 一行一项, 空的显示 — —— 用户要求"不光标题, 别的元数据也都一并摊开" */
+/* 站点首页: 把 `qupu123-268596` 这类 source 映射回该站首页(源码站可点) */
+function siteUrl(src) {
+  var host = String(src || '').split('-')[0];
+  var m = { qupu123: 'https://www.qupu123.com/', jianpucn: 'http://www.jianpu.cn/',
+            jianpujia: 'https://www.jianpujia.com/' };
+  return m[host] || '';
+}
+
+function metaRows(r) {
+  function list(x) { return (x || []).join('、'); }
+  var src = r.source || '';
+  var srcUrl = r.srcurl || sourceUrl(src);      // 优先链到原谱站**那一页**, 没有再退回站点首页
+  var rows = [
+    ['文件', r.file && r.file.length ? esc(list(r.file)) : '—'],
+    ['曲名', esc(r.group)],
+    ['歌手', r.artist && r.artist.length ? esc(list(r.artist)) : '—'],
+    ['状态', esc(r.status || '?') + (r.status === 'ok' ? '（人工校对过）'
+      : r.status === 'ocr' ? '（图片机器转写）' : '')],
+    ['音符', r.n + ' 个'],
+    ['小节', (r.bars || []).length + ' 小节 · ' + (r.bpb || 4) + ' 拍/小节'],
+    ['出处', src ? (srcUrl
+      ? '<a href="' + srcUrl + '" target="_blank" rel="noopener">' + esc(src) + '</a>'
+      : esc(src)) : '—'],
+    ['转写', r.transcriber && r.transcriber.length ? esc(list(r.transcriber)) : '—'],
+    ['标签', r.tags && r.tags.length ? esc(list(r.tags)) : '—'],
+    ['人标', r.usertags && r.usertags.length ? esc(list(r.usertags)) : '—'],
+    ['别名', r.alias && r.alias.length ? esc(list(r.alias)) : '—'],
+    ['MBID', r.mbid
+      ? '<a href="https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid) +
+        '" target="_blank" rel="noopener"><code>' + esc(r.mbid) + '</code></a>'
+      : '—'],
+  ];
+  return '<table class="meta"><tbody>' +
+    rows.map(function (x) { return '<tr><th>' + x[0] + '</th><td>' + x[1] + '</td></tr>'; }).join('') +
+    '</tbody></table>';
+}
+
+/* ================= 「每谱一页」 `/s/<id>` =================
+ * 用户口径(2026-09-24): "每张谱都有一个单独的页面, 显示它的原图, 像 abcnotation 那样"。
+ * 之前只有检索结果卡: 原图那张扫描件根本没地方看, 一首谱也没有能分享/回看/刷新的地址。
+ * 现在每一首都有自己的页面 —— 左边是**原图**(多页就一页一页堆下去), 右边是全部元数据 +
+ * 收录页 + 补标签 + 原文(带小节线)。
+ *
+ * 路由: `/s/<id>`。服务端把同一个 index.html 发出来(app/server.py), 由这里按 id 渲。
+ *      也认 `#/s/<id>` —— 纯静态托管(没有 SPA 回退)时用这个形式照样能打开。
+ * id 是 build_web_data.py 里 tune_id() 定的(首选 source), 前端只查表, 不重算。
+ */
+var CURRENT_TUNE = '';
+
+function tuneIdFromLocation() {
+  var p = location.pathname || '';
+  if (APP_PATH !== '/' && p.indexOf(APP_PATH) === 0) p = p.slice(APP_PATH.length - 1);
+  var m = /^\/?s\/(.+)$/.exec(p);
+  if (!m) m = /^#\/?s\/(.+)$/.exec(location.hash || '');
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }   // 坏编码别把整页带崩
+}
+
+function setMode(tune) {
+  var h = $('home'), t = $('tune');
+  if (h) h.hidden = !!tune;
+  if (t) t.hidden = !tune;
+  // 谱页要**看图**: 把整页放宽(首页那种窄栏放不下一张扫描件)
+  if (document.body && document.body.classList) document.body.classList.toggle('tune-mode', !!tune);
+}
+
+function showHome(q) {
+  setMode(false);
+  CURRENT_TUNE = '';
+  document.title = '简谱旋律查歌';
+  if (q) {                                   // ?q=… -> 直接替用户查一次(谱页上的"用开头几个音检索"用它)
+    $('q').value = q;
+    run({ preventDefault: function () {} });
+  } else if ($('q')) {
+    $('q').focus();
+  }
+}
+
+function showTune(id) {
+  setMode(true);
+  CURRENT_TUNE = id;
+  var t = $('tune');
+  if (!t) return;
+  var row = (IDX && IDX.byId) ? IDX.byId.get(id) : null;
+  if (!row) {
+    t.innerHTML = '<p class="crumb"><a class="tune" href="' + esc(APP_PATH) + '">← 回检索</a></p>' +
+      '<h1 class="tune-h1">没有这一页</h1>' +
+      '<p class="hint">地址里的编号 <code>' + esc(id) + '</code> 不在语料里' +
+      '（id 是 source，如 <code>jianpucn-150657</code>；没有 source 的谱用 <code>f-文件名</code>）。' +
+      '也可能是索引刚重建过 —— 回检索页搜一下看看。</p>';
+    document.title = '没有这一页 — 简谱旋律查歌';
+    return;
+  }
+  t.innerHTML = tuneHtml(row);
+  document.title = (row.group || row.title || id) + ' — 简谱旋律查歌';
+}
+
+/* 每谱一页。**没有"原图"那一栏**（用户口径 2026-09-24: 不转存扫描件、也不外链图片）——
+ * 原站那一页的地址本来就在「出处」和「收录页」里, 信息不丢, 版面还干净。
+ * 页面就是: 标题/副行 -> 全部元数据 + 收录页 + 补标签 -> 带小节线的原文。
+ */
+function tuneHtml(r) {
+  var list = function (x) { return (x || []).join('、'); };
+  var sub = [
+    r.artist && r.artist.length ? '歌手 ' + esc(list(r.artist)) : '',
+    r.n + ' 音符',
+    (r.bars || []).length + ' 小节 · ' + (r.bpb || 4) + ' 拍/小节',
+    esc(r.status || '?') + (r.status === 'ok' ? '（人工校对过）' : r.status === 'ocr' ? '（图片机器转写）' : ''),
+    r.source ? '出处 ' + esc(r.source) : '',
+  ].filter(Boolean).join(' · ');
+  var motif = (r.p && r.p.length >= 8)
+    ? '<p class="hint"><a class="tune" href="' + esc(appPath('') + '?q=' + r.p.slice(0, 8)) + '"' +
+      ' title="把这 8 个音送进旋律检索(查重、找同曲异名)">用开头的 ' + r.p.slice(0, 8) + ' 去检索</a></p>'
+    : '';
+  return '<p class="crumb"><a class="tune" href="' + esc(APP_PATH) + '">← 回检索</a>' +
+      '<span class="dim">' + esc(r.id || '') + '</span></p>' +
+    '<h1 class="tune-h1">' + esc(r.group || r.title || '(无题)') + '</h1>' +
+    '<p class="tune-sub">' + sub + '</p>' +
+    '<h2>元数据</h2>' + metaRows(r) +
+    '<div class="links"><span class="lab">收录页</span> ' + exactLinks(r, 'tune') + addTagForm(r) +
+      '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener"' +
+      ' title="这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a></div>' +
+    motif +
+    '<h2>原谱原文</h2>' +
+    // **verbatim**: 曲谱文件正文原样(含节头/KeepLength/换行), 既不展开也不注入小节线 ——
+    // 用户口径 2026-09-24("用用户写的文件一字不差")。老数据没有 src 时退回 raw。
+    ((r.src || r.raw)
+      ? '<pre class="sheet">' + esc(r.src || r.raw) + '</pre>' +
+        (r.src ? '' : '<p class="hint">（这份索引较早，只有展开过的原文；重建索引后就是文件原文。）</p>')
+      : '<p class="hint">没有原文。</p>') +
+    '<footer><a class="tune" href="' + esc(APP_PATH) + '">← 回检索页</a></footer>';
+}
+
+/* 应用内跳转: 改地址栏 + 重渲, 不整页刷新(搜索框里的东西和已加载的语料都留着) */
+function navigate(href) {
+  if (typeof history !== 'undefined' && history.pushState) history.pushState(null, '', href);
+  route();
+  if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+}
+
+function route() {
+  var id = tuneIdFromLocation();
+  if (id) return showTune(id);
+  var q = '';
+  try { q = new URLSearchParams(location.search || '').get('q') || ''; } catch (e) { q = ''; }
+  showHome(q);
+}
+
+/* 保存成功后**就地改本地索引**: 服务端重建索引要 ~2 分钟, 但用户刚补的那条链接现在就该变绿。
+ * 检索结果与索引里那一首共用同一个数组对象(见 search.js), 所以 push 进去再重渲就立即生效。 */
+function findSongByFile(f) {
+  if (!IDX || !f) return null;
+  for (var i = 0; i < IDX.songs.length; i++) {
+    if (((IDX.songs[i].file || [])[0]) === f) return IDX.songs[i];
+  }
+  return null;
+}
+
+function addLocalLinks(file, urls) {
+  var s = findSongByFile(file);
+  if (!s) return;
+  if (!s.links) s.links = [];
+  (Array.isArray(urls) ? urls : [urls]).forEach(function (u) {
+    if (u && s.links.indexOf(u) < 0) s.links.push(u);
+  });
+}
+
+function addLocalTags(file, tags) {
+  var s = findSongByFile(file);
+  if (!s) return;
+  ['tags', 'usertags'].forEach(function (k) {
+    if (!s[k]) s[k] = [];
+    (Array.isArray(tags) ? tags : [tags]).forEach(function (t) {
+      if (t && s[k].indexOf(t) < 0) s[k].push(t);
+    });
+  });
+}
+
+/* 卡片标题 / 一颗片子 -> 这一首的独立页面 */
+function tuneChip(r, ctx) {
+  if (!r || !r.id || ctx === 'tune') return '';
+  return '<a class="tune-link tune" href="' + esc(tunePath(r.id)) + '" data-tune="' + esc(r.id) + '"' +
+    ' title="这一首的独立页面：原图 + 全部元数据">本谱一页</a>';
+}
+
+function tuneTitle(r) {
+  var name = esc(r.group || r.title || '');
+  if (!r.id) return '<span class="title">' + name + '</span>';
+  return '<a class="title tune" href="' + esc(tunePath(r.id)) + '" data-tune="' + esc(r.id) + '"' +
+    ' title="打开这一首的页面（原图 + 元数据）">' + name + '</a>';
+}
+
+function render(segs, res, ms) {
+  var qshow = segs.map(show).join('  |  ');
+  if (!res.length) {
+    $('status').textContent = '没找到匹配（' + ms + ' 毫秒）。片段至少 5 个音；换更长的片段试试。';
+    $('out').innerHTML = '<p class="hint">如果确认库里应该没有这首歌，点这里告诉作者：' +
+      '<span class="links"><a class="add" href="' + issueUrl(qshow) + '" target="_blank" rel="noopener">＋ 建议收录</a></span></p>';
+    return;
+  }
+  var tied = 0;
+  for (var i = 0; i < res.length; i++) if (res[i].cost === res[0].cost) tied++;
+  $('status').textContent = '查询 ' + qshow + '：命中 ' + res.length + ' 组，用时 ' + ms + ' 毫秒' +
+    (tied > 1 ? '；最优并列 ' + tied + ' 组（片段不够独特，加长或补第二段）' : '');
+
+  var html = '';
+  LAST = res[0].group;                 // 供"投稿"表单的「用刚才查询的曲名填入」
+  LASTFILE = (res[0].file && res[0].file[0]) || '';   // 纠错时告诉作者改哪一份
+  for (var k = 0; k < res.length; k++) {
+    var r = res[k];
+    html += '<div class="card' + (k === 0 ? ' top' : '') + '">' +
+      '<div class="head">' +
+        (k === 0 ? '' : '<span class="rank">#' + (k + 1) + '</span>') +
+        tuneTitle(r) +
+        '<span class="cost c' + Math.min(r.cost, 2) + '">代价 ' + r.cost + '</span>' +
+        '<span class="badge">记号 ' + r.exact + '/' + r.qlen + '</span>' +
+        '<span class="badge">' + r.n + ' 音符</span>' +
+        '<span class="badge">' + esc(r.status || '?') + '</span>' +
+      '</div>' +
+      metaRows(r) +
+      '<div class="cmp"><span class="lab">库内该段</span> ' + esc(show(r.libNotes)) +
+        '　<span class="lab">你的输入</span> ' + esc(show(r.qNotes)) + '</div>' +
+      '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +
+      '<div class="links">' +
+        '<span class="lab">收录页</span> ' + exactLinks(r, 'melody') +
+        tuneChip(r, 'melody') +
+        addTagForm(r) +
+        '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener" ' +
+        'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +
+      '</div></div>';
+  }
+  $('out').innerHTML = html +
+    '<p class="hint">代价 0 = 连升降号都一致；你没写记号时对上带 #/b 的音记 1，' +
+    '写了记号而库里是自然音记 2。“记号”是升降号完全一致的音数。' +
+    '<b>收录页</b>是这首歌在那一站的<b>具体页面</b>（人工补的 + 原谱站核对过的）；' +
+    '<b>去找这一页</b>只是帮你到各站搜出页面，本身不是收录链接。</p>';
+}
+
+$('form').addEventListener('submit', run);
+
+/* ---------------- 「按曲名找」----------------
+ * 为什么需要: 补收录页/标签、核对元数据时都是"对着某一首"操作, 而上面的旋律查歌得先知道旋律。
+ * 这里只按本地索引(曲名/别名)过滤, 不联网; 卡片与旋律结果卡共用 metaRows / exactLinks 等,
+ * 所以「收录页」「待补充」「＋补收录页」的行为完全一致。 */
+function titleSearch(q) {
+  var s = String(q || '').trim().toLowerCase();
+  if (!s || !IDX) return [];
+  var out = [];
+  for (var i = 0; i < IDX.songs.length && out.length < 40; i++) {
+    var x = IDX.songs[i];
+    var hay = [x.title, x.group, (x.alias || []).join(' ')].join(' ').toLowerCase();
+    if (hay.indexOf(s) >= 0) out.push(x);
+  }
+  return out;
+}
+
+function renderTitle(list, q) {
+  if (!list.length) {
+    $('tstatus').className = 'status err';
+    $('tstatus').textContent = '按曲名没找到「' + q + '」。换个更短的关键词，或用上面的旋律查歌。';
+    $('tout').innerHTML = '';
+    return;
+  }
+  $('tstatus').className = 'status';
+  $('tstatus').textContent = '按曲名「' + q + '」命中 ' + list.length + ' 首' +
+    (list.length >= 40 ? '（只显示前 40 首，写更具体一点）' : '');
+  var html = '';
+  for (var k = 0; k < list.length; k++) {
+    var x = list[k];
+    html += '<div class="card">' +
+      '<div class="head">' + tuneTitle(x) +
+        '<span class="badge">' + x.n + ' 音符</span>' +
+        '<span class="badge">' + esc(x.status || '?') + '</span>' +
+      '</div>' + metaRows(x) +
+      '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x, 'title') +
+        tuneChip(x, 'title') + addTagForm(x) + '</div>' +
+      (x.raw ? '<div class="score">' + esc(x.raw) + '</div>' : '') +
+      '</div>';
+  }
+  $('tout').innerHTML = html;
+}
+
+function rerunTitle() { renderTitle(titleSearch($('tq').value), $('tq').value); }
+if ($('tform')) {
+  $('tform').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    rerunTitle();
+  });
+}
+
+/* 「＋ 补收录页」的保存: 走已有投稿接口 -> 服务端校验后把 link=<url> 写进 scores/<file>.txt
+ * 并 git commit, 再重建索引。返回值里的 file/commit/refresh 用来给用户回话。 */
+document.addEventListener('click', function (ev) {
+  // 「每谱一页」的链接: 应用内跳转(不整页刷新, 也不新开标签)
+  var tl = ev.target && ev.target.closest ? ev.target.closest('a.tune') : null;
+  if (tl) {
+    ev.preventDefault();
+    navigate(tl.getAttribute('href'));
+    return;
+  }
+  // 圆形 ＋: 就地展开这一张卡的输入框, 并按平台给占位提示
+  var pb = ev.target && ev.target.closest ? ev.target.closest('.plus') : null;
+  if (pb) {
+    var row = document.getElementById(pb.getAttribute('data-row'));
+    if (row) {
+      row.hidden = false;
+      var pin = row.querySelector('.al-url');
+      if (pin) { pin.placeholder = pb.getAttribute('data-ph') || 'https://…'; pin.focus(); }
+      var pm = row.querySelector('.al-msg');
+      if (pm) { pm.textContent = ''; pm.className = 'al-msg'; }
+    }
+    return;
+  }
+  // 「＋ 补标签」
+  var tb = ev.target && ev.target.closest ? ev.target.closest('.al-go-tags') : null;
+  if (tb) {
+    var tbox = tb.closest('.addlink');
+    var tin = tbox.querySelector('.at-tags');
+    var tmsg = tbox.querySelector('.al-msg');
+    var tags = (tin.value || '').trim();
+    if (!tags) { tmsg.className = 'al-msg err'; tmsg.textContent = '先填标签'; return; }
+    if (READONLY) { readonlyInto(tmsg); return; }        // 只读镜像: 别发一个必 404 的请求
+    tb.disabled = true; tmsg.className = 'al-msg'; tmsg.textContent = '保存中…';
+    fetch(API + '/api/submit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'tags', file: tb.getAttribute('data-file'), tags: tags }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      tb.disabled = false;
+      if (j && j.ok) {
+        tmsg.className = 'al-msg ok';
+        tmsg.textContent = '已写入 ' + (j.tags || []).join('、') + '（' + j.state + '）' +
+          (j.refresh ? '；' + (j.refresh_msg || '索引重建中') : '');
+        tin.value = '';
+        addLocalTags(tb.getAttribute('data-file'), j.tags);   // 就地生效, 不等 2 分钟重建
+      } else {
+        tmsg.className = 'al-msg err';
+        tmsg.textContent = '失败：' + ((j && j.err) || '未知错误');
+      }
+    }).catch(function (e) { tb.disabled = false; tmsg.className = 'al-msg err'; tmsg.textContent = '失败：' + e.message; });
+    return;
+  }
+  var b = ev.target && ev.target.closest ? ev.target.closest('.al-go') : null;
+  if (!b) return;
+  var box = b.closest('.addlink');
+  var inp = box.querySelector('.al-url');
+  var msg = box.querySelector('.al-msg');
+  var url = (inp.value || '').trim();
+  if (!url) { msg.className = 'al-msg err'; msg.textContent = '先粘贴网址'; return; }
+  if (READONLY) { readonlyInto(msg); return; }          // 同上
+  b.disabled = true;
+  msg.className = 'al-msg';
+  msg.textContent = '保存中…';
+  fetch(API + '/api/submit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'link', file: b.getAttribute('data-file'), url: url }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    b.disabled = false;
+    if (j && j.ok) {
+      msg.className = 'al-msg ok';
+      msg.textContent = '已写入 ' + j.file +
+        (j.committed ? '（已 git commit）' : '（未提交：' + (j.git || '未知原因') + '）') +
+        (j.refresh ? '；' + (j.refresh_msg || '索引重建中，约 2 分钟后刷新可见') : '');
+      inp.value = '';
+      // **输入后自动补充**: 先把链接就地写进本地索引(否则要等服务端 ~2 分钟重建完才会变绿),
+      // 再重跑当前这次渲染 -> 黄片立刻变绿真链接
+      addLocalLinks(b.getAttribute('data-file'), j.url);
+      // 重跑当前这次的渲染 -> 灰片/黄片立刻变成绿色真链接(谱页 / 检索卡 / 按曲名卡各走各的)
+      var re = b.getAttribute('data-re') || '';
+      setTimeout(function () {
+        if (re === 'title') rerunTitle();
+        else if (re === 'tune') showTune(CURRENT_TUNE);
+        else run({ preventDefault: function () {} });
+      }, 400);
+    } else {
+      msg.className = 'al-msg err';
+      msg.textContent = '失败：' + ((j && j.err) || '未知错误');
+    }
+  }).catch(function (e) {
+    b.disabled = false;
+    msg.className = 'al-msg err';
+    msg.textContent = '失败：' + e.message;
+  });
+});
+var exs = document.getElementsByClassName('ex');
+for (var i = 0; i < exs.length; i++) {
+  exs[i].addEventListener('click', function (ev) {
+    ev.preventDefault();
+    $('q').value = this.getAttribute('data-q');
+    run();
+  });
+}
+
+/* ---------- 投稿(不用登录, 不碰 GitHub) ---------- */
+var API = window.JIANPU_API || (location.protocol + '//' + location.host);   // 同源; 换服务器就设 window.JIANPU_API
+// 纯静态托管(如 GitHub Pages 镜像)没有写回服务: 构建时注入 window.JIANPU_READONLY=true。
+// 读路径(检索/卡片/谱页)本来全在浏览器里跑, 一点不受影响; 只有"投稿/补收录/补标签"要给句人话。
+var READONLY = !!window.JIANPU_READONLY;
+var MIRROR = 'https://jianpu-web.pages.dev/';       // 有写回的那份(Cloudflare); 只读镜像里指给大家
+
+function readonlyInto(el) {
+  el.className = (el.classList && el.classList.contains('al-msg')) ? 'al-msg err' : 'status err';
+  el.innerHTML = '这里只读：查歌与谱页都能用，但投稿/补收录/补标签要写回本机服务 —— 请到 ' +
+    '<a href="' + MIRROR + '" target="_blank" rel="noopener">jianpu-web.pages.dev</a> 提交。';
+}
+
+var LAST = '', LASTFILE = '';   // 供「投稿」表单: 曲名 + 刚查的那一份曲谱文件
+
+function submit() {
+  var t = $('stitle').value.trim();
+  if (!t) { $('sstatus').className = 'status err'; $('sstatus').textContent = '请填曲名。'; return; }
+  if (READONLY) { readonlyInto($('sstatus')); return; }
+  var kind = $('skind').value;
+  var body = {
+    kind: kind, title: t,
+    score: $('sscore').value.trim(), note: $('snote').value.trim(),
+    contact: $('scontact').value.trim(),
+    // 纠错/元数据: 带上刚才查的那一份, 作者不用猜你说的是哪份
+    file: (kind === 'fix' || kind === 'meta') ? LASTFILE : ''
+  };
+  $('sstatus').className = 'status';
+  $('sstatus').textContent = '提交中…';
+  $('sgo').disabled = true;
+  fetch(API + '/api/submit', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }).then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+    .then(function (x) {
+      $('sgo').disabled = false;
+      if (x.j && x.j.ok) {
+        $('sstatus').textContent = '已收到，编号 ' + x.j.id +
+          (x.j.score_file ? '（已生成曲谱 ' + x.j.score_file + ' 入库' +
+            (x.j.refresh ? '，索引重建中，约 2 分钟后可搜到' : '') + '）'
+            : '（只留了投稿，没有数字）') +
+          (x.j.score_warn ? '　⚠ ' + x.j.score_warn : '');
+        $('stitle').value = ''; $('sscore').value = ''; $('snote').value = '';
+      } else {
+        $('sstatus').className = 'status err';
+        $('sstatus').textContent = '提交失败：' + ((x.j && x.j.err) || ('HTTP ' + x.s)) +
+          '。可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+        $('sstatus').innerHTML = $('sstatus').textContent;
+      }
+    })
+    .catch(function (e) {
+      $('sgo').disabled = false;
+      $('sstatus').className = 'status err';
+      $('sstatus').innerHTML = '连不上投稿服务（' + e.message + '）。' +
+        '可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+    });
+}
+
+$('sform').addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+if (READONLY) {           // 表单还在, 但先把话说清楚 —— 免得人填完才发现写不进去
+  $('sform').insertAdjacentHTML('beforebegin',
+    '<p class="lead" id="ro-note">⚠ 本页是 <b>GitHub Pages 只读镜像</b>：查歌与谱页完全可用；' +
+    '投稿/补标签要写回本机服务，请到 <a href="' + MIRROR + '" target="_blank" rel="noopener">' +
+    'jianpu-web.pages.dev</a> 提交。</p>');
+}
+$('sfill').addEventListener('click', function () {
+  if (LAST) { $('stitle').value = LAST; }
+  else { $('sstatus').textContent = '先在上面查一次，再点这个按钮。'; }
+});
+
+loadCorpus().then(function (txt) {
+  IDX = buildIndex(txt);
+  return fetch(appUrl('data/stats.json')).then(function (r) { return r.json(); })
+    .then(function (st) { loadPlatforms(st); return st; });
+}).then(function (st) {
+  $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 个曲名组），' +
+    st.notes.toLocaleString() + ' 个音符，含变音记号 ' + st.with_accidental + ' 首' +
+    (st.with_images ? '，' + st.with_images + ' 首有原图（' + st.image_pages + ' 页）' : '') + '。';
+  $('status').textContent = '就绪，共 ' + IDX.count + ' 首。';
+  fillTagList();
+  // 深链: 直接打开 /s/<id> 也要能渲出那一页(先把语料装上, 再按地址路由)
+  if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('popstate', route);
+  if (tuneIdFromLocation()) route();
+  else showHome('');
+}).catch(function (err) {
+  $('status').className = 'status err';
+  $('status').textContent = '初始化失败：' + err.message;
+});

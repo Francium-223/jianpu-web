@@ -75,35 +75,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          owner="${GITHUB_REPOSITORY%%/*}"; repo="${GITHUB_REPOSITORY#*/}"
+          case "$repo" in
+            *.github.io) site="https://${repo}/" ;;                   # <org>.github.io 发在域名根
+            *)           site="https://${owner}.github.io/${repo}/" ;;
+          esac
+          echo "站点推测地址: $site"
           code=$(curl -s -o /tmp/pages.json -w '%{http_code}' \
                  -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
-                 "https://api.github.com/repos/${{ github.repository }}/pages")
-          echo "GET /repos/${{ github.repository }}/pages -> $code"
-          echo "  $(head -c 200 /tmp/pages.json)"
-          if [ "$code" = 200 ]; then
-            # build_type: "workflow" = Source 选的是 GitHub Actions(我们要的);
-            #             "legacy"   = 发的是**某个分支的源码树** —— 那种模式下这个 artifact 根本不会上线,
-            #                          而 deploy-pages 仍然"成功"(2026-09-25 实测: 站点发的是仓库树,
-            #                          根目录没有 index.html, 于是首页 404, 但 run 是绿的)。
-            bt=$(grep -o '"build_type":"[a-z]*"' /tmp/pages.json | cut -d'"' -f4)
-            if [ "$bt" = "workflow" ]; then
-              echo "on=1" >> "$GITHUB_OUTPUT"
-            elif [ "$bt" = "legacy" ]; then
-              echo "on=0" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Pages Source 不是 'GitHub Actions'::当前 build_type='legacy'。去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'；之后重跑本 workflow 就会发布构建产物。现在这个模式发的是仓库源码树(根目录没有 index.html)，首页会是 404 —— 所以本次只构建+自检，不发布。"
-            else
-              # 200 但没给出 build_type(API 变了?) —— 宁可试一次(发布后有实测把关), 也别永远不发。
-              echo "on=1" >> "$GITHUB_OUTPUT"
-              echo "::warning::Pages 已启用但读不到 build_type(得到 '${bt:-空}'), 继续尝试发布。"
-            fi
+                 "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")
+          echo "GET /repos/$GITHUB_REPOSITORY/pages -> $code $(head -c 120 /tmp/pages.json)"
+          # 判据用**内容指纹**, 不靠 API 字段: 仓库源码树里有 package.json, 构建产物里没有。
+          # (实测读 build_type 读不到, 但"站点正在发仓库树"这件事一眼能验:
+          #  /package.json -> 200 且首页没有 static/app.<hash>.js。)
+          pkg=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${site}package.json" || echo 000)
+          home=$(curl -sL -m 20 "$site" || true)
+          if printf '%s' "$home" | grep -q 'static/app\.'; then
+            echo "on=1" >> "$GITHUB_OUTPUT"
+            echo "  站点正在发构建产物 -> 照常发布"
+          elif [ "$pkg" = 200 ]; then
+            echo "on=0" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Pages Source 是「分支」模式::${site} 正在发**仓库源码树**（能取到 package.json, 首页没有 index.html, 所以是 404）。去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'，再重跑本 workflow。本次只构建+自检, **不发布** —— 分支模式下发出去的 artifact 会被同一次 push 的分支构建覆盖(实测: 先取回是产物, 一分多钟后变回仓库树)。"
           elif [ "$code" = 404 ]; then
             echo "on=0" >> "$GITHUB_OUTPUT"
-            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'。本次只构建+自检，没有发布。"
+            echo "::notice title=GitHub Pages 未启用::去 Settings → Pages → Build and deployment → Source 选 'GitHub Actions'。本次只构建+自检, 不发布。"
           else
-            # 403/5xx: 探不出来(权限/限流)。这时**照常往下走** —— 真有问题让 configure-pages 报清楚,
-            # 总比"明明能用却永远不发布"强; 发布后还有一步"取回首页"的实测把关。
+            # 首次发布(站点还没有产物, 也没有仓库树可判) / 探测被限流: 宁可试一次, 发布后有实测把关。
             echo "on=1" >> "$GITHUB_OUTPUT"
-            echo "::warning::探测 Pages 状态得到 HTTP $code, 无法确定; 继续尝试发布。"
+            echo "::warning::判断不了 Pages 模式(API $code, package.json $pkg), 尝试发布 —— 发布后有实测把关。"
           fi
 
       - if: steps.probe.outputs.on == '1'
@@ -125,21 +124,27 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-      # 发布后**真的去站点取一次首页**: deploy-pages 说"成功"不等于站点在发我们的东西
-      # (见上面 probe 那段 legacy 模式的坑)。取回来必须是我们那份 index.html(引用了
-      # `static/app.<hash>.js`), 否则响亮地失败并说清最可能的原因。
-      - name: 发布后实测（取回首页）
+      # 发布后**真的去站点取一次首页**, 并复核一次别被覆盖: deploy-pages 说"成功"不等于站点在发我们的东西
+      # (实测: 分支模式下 artifact 会被同一次 push 的分支构建覆盖; 取回首页必须能拿到引用
+      #  `static/app.<hash>.js` 的 index.html, 且 90 秒后仍然如此)。
+      - name: 发布后实测（取回首页 + 90 秒后复核）
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
+          ok=0
           for i in 1 2 3 4 5 6; do
             body=$(curl -sL -m 20 "$url" || true)
-            if printf '%s' "$body" | grep -q 'static/app\.'; then
-              echo "✓ $url 正在发构建产物（第 $i 次取回）"
-              exit 0
-            fi
+            if printf '%s' "$body" | grep -q 'static/app\.'; then ok=1; echo "✓ 第 $i 次取回的是构建产物: $url"; break; fi
             echo "  第 $i 次取回的不是构建产物, 等 20s 再试…"
             sleep 20
           done
-          echo "::error title=站点没有在发构建产物::$url 取回来的不是我们的 index.html。最常见原因: Settings → Pages → Source 还不是 'GitHub Actions'（分支模式下发的是仓库源码树, 根目录没有 index.html, 所以首页 404）。"
-          exit 1
-
+          if [ "$ok" != 1 ]; then
+            echo "::error title=站点没有在发构建产物::$url 取回来的不是我们的 index.html。最常见原因: Settings → Pages → Source 还不是 'GitHub Actions'。"
+            exit 1
+          fi
+          sleep 90
+          if curl -sL -m 20 "$url" | grep -q 'static/app\.'; then
+            echo "✓ 复核仍是构建产物, 站点稳定"
+          else
+            echo "::error title=站点被分支构建覆盖了::刚才取回的是构建产物, 90 秒后变成了仓库源码树 —— Pages 的 Source 还是「Deploy from a branch」。改成 'GitHub Actions' 再重跑。"
+            exit 1
+          fi
