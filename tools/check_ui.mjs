@@ -63,9 +63,14 @@ ok(!/undefined|NaN|\[object Object\]/.test(out), 'HTML 里没有 undefined / NaN
 for (const [name, re] of [['卡片', /class="card/], ['标黑', /<mark>/], ['收录页那行', /class="lab">收录页/],
                           ['待补充或精确链接', /(class="exact"|待补充)/], ['黄色待补片(指向搜索页的链接)', /<a class="exact pending" href=/], ['圆形 ＋', /class="plus"/],
                           ['歌手行', /<th>歌手<\/th>/],
+                          ['本谱一页(通向 /s/<id> 的站内链接)', /class="title tune" href="[^"]*\/s\//],
                           ['补收录页表单', /class="addlink"/], ['小节线', /class="bar"/]]) {
   ok(re.test(out), '结果卡里有「' + name + '」');
 }
+// 卡片里那颗「本谱一页」片子: 必须真的指向 /s/<id>(用户要的"每谱一页"入口就在卡片上)
+const chip = (out.match(/<a class="tune-link tune" href="([^"]+)" data-tune="([^"]+)"/) || []);
+ok(!!chip[1] && /\/s\//.test(chip[1]), '卡片里有「本谱一页」片子: ' + (chip[1] || '(没有)'));
+
 // 把卡片开头一小段打出来, 方便肉眼核对
 const i = out.indexOf('<div class="links">');
 console.log('\n链接区 HTML:\n', out.slice(i, i + 900).replace(/></g, '>\n<'));

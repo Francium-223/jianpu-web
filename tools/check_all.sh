@@ -14,11 +14,20 @@ cd "$WEB"
 fail=0
 run() { echo; echo "=== $* ==="; "$@" || { echo "!! 上面这组失败了"; fail=1; }; }
 run python3 tools/check_submit.py
+run python3 tools/check_images_index.py
 run node tools/check_render.mjs "$URL"
 run node tools/check_page.mjs "$URL"
 run node tools/check_search.mjs "$URL"
 run node tools/check_ui.mjs "$URL"
+run node tools/check_tune.mjs "$URL"
 run node tools/check_live.mjs "$URL"
+# 真浏览器那一步: 假 DOM 证明不了"图真的解码出来/点了能跳/刷新还在"。没装 geckodriver 就跳过。
+if command -v geckodriver >/dev/null 2>&1 || command -v firefox.geckodriver >/dev/null 2>&1; then
+  run python3 tools/browser_check.py spa "$URL"
+  run python3 tools/browser_check.py subdir      # 子目录部署(静态托管那样)也别坏
+else
+  echo; echo "=== 浏览器交互自检 === (跳过: 没装 geckodriver)"
+fi
 echo
 [ "$fail" = 0 ] && echo "全部自检通过 —— $URL" || echo "有自检失败, 见上面 !! 处"
 exit $fail

@@ -1,4 +1,5 @@
 songs.jsonl
+images.jsonl
 __pycache__/
 *.pyc
 _commitmsg.txt

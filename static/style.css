@@ -89,3 +89,33 @@ table.meta td { padding: .1rem 0; vertical-align: top; word-break: break-word; }
 .al-msg.err { color: #b42318; }
 .hint { color: var(--dim); font-size: .85rem; margin-top: .6rem; }
 footer { color: #6b7280; font-size: .84rem; border-top: 1px solid var(--line); margin-top: 2.5rem; padding-top: .8rem; }
+
+/* ================= 「每谱一页」 `/s/<id>` =================
+   左边是**原图**(扫描件整页, 多页就一页一页堆下去), 右边是全部元数据 + 收录页 + 补标签 + 原文。
+   版式参照 abcnotation 的单曲页: 图是主角, 元数据在侧栏, 顶部一条"回检索"的面包屑。 */
+#home[hidden], #tune[hidden] { display: none; }
+.crumb { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+  font-size: .88rem; color: var(--dim); margin: 0 0 .35rem; }
+.crumb .dim { color: #9aa4b2; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .84rem; }
+.tune-h1 { font-size: 1.5rem; margin: 0 0 .2rem; }
+.tune-sub { color: var(--dim); font-size: .9rem; margin: 0 0 1.1rem; }
+.tune-cols { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(17rem, 1fr);
+  gap: 1.5rem; align-items: start; }
+@media (max-width: 54rem) { .tune-cols { grid-template-columns: 1fr; } }
+.viewer h2, .side h2 { margin-top: .4rem; }
+.viewer figure.page { margin: 0 0 1rem; padding: .5rem; background: #fafbfc;
+  border: 1px solid var(--line); border-radius: 8px; }
+.viewer figure.page img { display: block; width: 100%; height: auto; background: #fff; border: 1px solid #e9ecef; }
+.viewer figure.page figcaption { font-size: .8rem; color: var(--dim); margin-top: .35rem; text-align: right; }
+.viewer figure.page a { display: block; }
+.side .links { margin-top: .55rem; }
+.side table.meta { margin-bottom: .7rem; }
+/* 卡片里那颗「本谱一页」: 与「收录页」片子同形状, 但它是**站内跳转**(不新开标签) */
+.links .tune-link { background: #eef3fd; border-color: #b9cdf0; color: #14448a; font-weight: 500; }
+.links .tune-link:hover { border-color: #14448a; }
+/* 卡片标题也是通向那一页的链接: 保持标题的样子, 别整片蓝 */
+a.title { color: inherit; }
+a.title:hover { color: var(--accent); text-decoration: underline; }
+/* 谱页: 看原图要的是宽度, 首页那 52rem 的窄栏放不下一张扫描件 */
+body.tune-mode .wrap { max-width: 78rem; }
+body.tune-mode .lead, body.tune-mode .examples { max-width: 46rem; }

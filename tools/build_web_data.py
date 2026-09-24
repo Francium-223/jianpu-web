@@ -2,11 +2,14 @@
 """把 jianpu-db 的 data.jsonl 转成前端索引(含**原谱原文**, 供结果页显示并高亮命中段)。
 
 与前端的约定(与 static/jptok.js **同一套口径**):
+  id: 这首歌独立页面的地址 `/s/<id>`(见 tune_id(): 首选 source, 否则 `f-<文件名>`)。
+      前端只按 id 查表 —— 每谱一页(原图 + 元数据)就是 `/s/<id>`。
   p : 音高串, 仅数字 1-7(不含升降号), 长度 = 音符数
   a : 变音串, 与 p 逐音对齐, 每字符 '0'(自然) / '1'(升) / '2'(降)
   o : 八度串, 与 p 逐音对齐, 每字符是 -2..2 的数字(可能带负号)
-  s : 原谱原文(空格分隔的 token 流), 用于结果页显示与高亮
-用法: py -3.13 tools/build_web_data.py [--data 路径] [--out 目录]
+  raw : 原谱原文(空格分隔的 token 流), 用于结果页显示与高亮
+另外顺带产出原图索引 data/images.jsonl(.gz) —— 扫描逻辑在 tools/build_image_index.py。
+用法: py -3.13 tools/build_web_data.py [--data 路径] [--out 目录] [--no-images]
 """
 import argparse
 import gzip
@@ -46,14 +49,37 @@ def group_of(t):
     return re.split(r"[（(\s　【\[《]", base)[0].strip() or base.strip()
 
 
+def tune_id(src, files, used):
+    """一首谱的**页面地址**: `/s/<id>`。id 必须 ASCII、能进 URL、且全库唯一。
+
+    首选 `source`(`jianpucn-150657`) —— 它本来就是全库的主键, 也是图片目录名 `…__<source>`
+    的后半截, 拿它当 id, "这一页 -> 它的原图"就是一次直接查表, 不用再编第二套编号。
+    少数谱没有 source(36 首空 + 2 首 unknown + 重复 source) -> 退回文件名(`f-<stem>`),
+    重名的后面挂 `-2`。**这套规则只写在这里一处**, 前端不重算(它只按 id 查表)。
+    """
+    base = src if src and re.match(r"^[A-Za-z0-9._-]+$", src) else ""
+    if not base:
+        stem = os.path.splitext(((files or [""]) or [""])[0])[0].strip()
+        base = "f-" + (stem or "untitled")
+    base = base.strip("-._") or "s"
+    rid, n = base, 1
+    while rid in used:
+        n += 1
+        rid = f"{base}-{n}"
+    used.add(rid)
+    return rid
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default=r"D:\Documents_D\jianpu-db\data.jsonl")
+    ap.add_argument("--data", default=os.path.join(os.path.dirname(ROOT), "jianpu-db", "data.jsonl"))
     ap.add_argument("--out", default=os.path.join(ROOT, "data"))
+    ap.add_argument("--no-images", action="store_true", help="不重扫原图索引(只重建检索索引)")
+    ap.add_argument("--img-base", default="/img/", help="原图 URL 前缀(换 CDN/静态站时改这里)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
-    rows, srcs, notes = [], {}, 0
+    rows, srcs, notes, used = [], {}, 0, set()
     # 原谱站的**确切页面**: 由 jianpu2/tools/verify_source_urls.py 逐条抓取核对后写下的映射
     # (source 里只有 `qupu123-300587` 这种 ID; 这里把它换成那一页的真实 URL)
     DB = os.path.dirname(os.path.abspath(a.data))
@@ -87,6 +113,7 @@ def main():
         srcs[host] = srcs.get(host, 0) + 1
         notes += len(p)
         rows.append({
+            "id": tune_id(src, r.get("file"), used),
             "t": r.get("title") or "", "s": src, "st": r.get("status") or "",
             "n": len(p), "p": "".join(p), "a": "".join(acc), "o": ",".join(oct_),
             "g": group_of(r.get("title")),
@@ -120,9 +147,12 @@ def main():
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as g:
             for r in rows:
                 g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
-    with gzip.open(os.path.join(a.out, "songs.jsonl"), "wb", compresslevel=0) as g:
-        for r in rows:                        # 老浏览器回退(不压缩)
-            g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+    # 明文的 songs.jsonl: 老浏览器没有 DecompressionStream 时走这一份。**必须是真明文** ——
+    # 这里以前写的是 `gzip.open(..., compresslevel=0)`, 名字像明文、内容却是 gzip 容器(头 1f 8b),
+    # 于是那条回退分支读到二进制乱码, 整个 app 直接"初始化失败"(2026-09-24 查出, 一起修掉)。
+    with io.open(os.path.join(a.out, "songs.jsonl"), "w", encoding="utf-8", newline="\n") as g:
+        for r in rows:
+            g.write(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n")
     # 收录平台表(搜索页格式的**唯一真源**在 jianpu-db/schema.py) -> 塞进 stats.json 给前端读。
     # 前端不自己写一份, 免得"每个平台的搜索 URL 长什么样"漂成两处。
     platforms = []
@@ -133,16 +163,31 @@ def main():
         platforms = list(getattr(_schema, "PLATFORMS", []))
     except Exception as e:                       # jianpu-db 不在旁边(如独立部署 web) -> 前端会用内建兜底
         print(f"  ! 读不到 schema.PLATFORMS({type(e).__name__}), 前端将用内建兜底表")
+    # 原图索引(每谱一页要用): 扫描逻辑只在 tools/build_image_index.py 一处
+    img_index, img_st = {}, {}
+    if not a.no_images:
+        try:
+            sys.path.insert(0, os.path.join(ROOT, "tools"))
+            import build_image_index as bii
+            img_index, img_st = bii.build(out=a.out, quiet=True)
+        except Exception as e:
+            print(f"  ! 原图索引没建成({type(e).__name__}: {e}) —— 谱页会显示'还没存下原图'")
+    with_images = sum(1 for r in rows if r["s"] and r["s"] in img_index)
+    image_pages = sum(len(img_index[r["s"]]["pg"]) for r in rows if r["s"] in img_index)
     stats = {"platforms": platforms,
              "songs": len(rows), "notes": notes, "groups": len({r["g"] for r in rows}),
              "sources": dict(sorted(srcs.items(), key=lambda x: -x[1])),
              "bytes_gz": os.path.getsize(outj),
              "with_accidental": sum(1 for r in rows if "1" in r["a"] or "2" in r["a"]),
-             "with_raw": sum(1 for r in rows if r["raw"])}
+             "with_raw": sum(1 for r in rows if r["raw"]),
+             # 「每谱一页」: 有多少首真能找到原图, 一共多少页, 以及原图 URL 前缀
+             "with_images": with_images, "image_pages": image_pages,
+             "image_sources": img_st.get("sources", 0), "img_base": a.img_base}
     with io.open(os.path.join(a.out, "stats.json"), "w", encoding="utf-8", newline="\n") as g:
         g.write(json.dumps(stats, ensure_ascii=False, indent=2))
     print(f"写出 {len(rows)} 首 -> {outj}  ({stats['bytes_gz']/1e6:.2f} MB gz)")
     print(f"  音符 {notes:,} · 含变音记号的 {stats['with_accidental']} 首 · 带原谱 {stats['with_raw']} 首")
+    print(f"  原图 {with_images} 首 / {image_pages} 页(全库扫出 {stats['image_sources']} 个 source 的图)")
     print(f"  来源 {stats['sources']}")
 
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""静态服务 + **零登录投稿**后端。
+"""静态服务 + **零登录投稿**后端 + 每谱一页的原图服务。
 
 为什么: 让用户去 GitHub 开 issue 是四重漏斗(链接能打开 -> 有账号 -> 愿意登录 -> 会写 issue),
 每层都指数级掉人。这里改成: 前端一个按钮 -> POST 到本服务 -> 服务端**直接用本地 git 提交**
@@ -10,6 +10,13 @@
       kind: "new"(推荐收录) / "fix"(纠错) / "meta"(元数据: 曲名/出处/标签不对)
       成功 -> 写入 jianpu-db/scores/ 或 feedback/ 并 git commit, 返回 {ok, id}
   GET  /api/health   -> {ok, repo, feedback_count}
+  GET  /s/<id>       -> 单页应用(: 每首谱的独立页面, 前端按 id 渲原图/元数据)
+  GET  /img/<路径>   -> 原图(路径相对**工作区根**, 如 images-prep/批次/标题__source/001.jpg)
+
+原图为什么由这里服务: 扫描件 8.9GB, 既不该进 git(前端仓库) 也不该进语料包, 它们躺在工作区
+的 images/ 与 images-prep/ 里。这里只开放这两个目录(防目录穿越 + 扩展名白名单), 并且长缓存。
+换静态站/CDN 时改下面 IMG_PREFIX 与前端 stats.json 里的 img_base 即可(口径仍是一处: 前端从
+stats.json 读前缀, 服务端从 JIANPU_IMAGES/工作区推出根目录)。
 
 安全: 默认只允许本机(127.0.0.1)与局域网; 有写盘 + git, 必须放在内网或加反代鉴权。
       另可设 JPSUBMIT_TOKEN 环境变量, 设了则要求请求头 X-Token 一致。
@@ -25,18 +32,36 @@ import sys
 import time
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WS = os.path.dirname(ROOT)                     # 工作区根(images/ 与 images-prep/ 就在这下面)
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8770
 DB = os.environ.get("JIANPU_DB", r"D:\Documents_D\jianpu-db")
 FEEDBACK = os.path.join(DB, "feedback")
 TOKEN = os.environ.get("JPSUBMIT_TOKEN", "")
 sys.stdout.reconfigure(encoding="utf-8")
 
+# 原图: 只开放这几个根(可被 JIANPU_IMAGES 覆盖, 冒号分隔) —— 与 tools/build_image_index.py 同一套默认
+IMG_PREFIX = "/img/"
+IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+IMG_CACHE = "public, max-age=604800"           # 扫描件不会变; 换了图就改名/换批次目录
+
 MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
         ".jsonl": "application/x-ndjson; charset=utf-8", ".gz": "application/gzip",
-        ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+        ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+
+
+def image_roots():
+    env = os.environ.get("JIANPU_IMAGES", "").strip()
+    if env:
+        return [os.path.abspath(p) for p in env.split(os.pathsep) if p.strip()]
+    return [os.path.join(WS, "images"), os.path.join(WS, "images-prep")]
+
+
+IMG_ROOTS = image_roots()
 
 # 简谱 token 口径**只有一份**: 复用 skill 目录里的 jptok.py。
 # 这里以前自带一份"前缀时值"正则 —— 投稿里若写 `6c.`/`5s`/`3q` 这种**后缀**时值,
@@ -335,11 +360,41 @@ def handle_submit(payload):
 def resolve(path):
     if path in ("/", ""):
         return os.path.join(ROOT, "static", "index.html")
+    # 「每谱一页」: /s/<id> 是**前端路由**, 服务端只把同一个 index.html 发出去, 由前端按 id 渲。
+    # (这样刷新/分享一个谱页地址永远有效; 纯静态部署时对应 404.html 兜底或改用 #/s/<id>。)
+    if path == "/s" or path.startswith("/s/"):
+        return os.path.join(ROOT, "static", "index.html")
     rel = path.lstrip("/")
     if not rel.startswith(("static/", "data/")):
         rel = os.path.join("static", rel)
     full = os.path.normpath(os.path.join(ROOT, rel))
     return full if full.startswith(ROOT) else None
+
+
+def resolve_img(rel):
+    """`/img/…` 后的路径 -> 磁盘路径; 任何越界/可疑一律 None。
+
+    路径是**相对工作区根**写的(如 `images-prep/qupu123-crawl/曲名__qupu123-1/001.jpg`),
+    因为索引就是这么存的(见 build_image_index.py)。三道闸: 百分号解码后逐段检查(不许 .. / 空段 /
+    反斜杠 / NUL) -> 扩展名白名单 -> 规范化后必须落在 IMG_ROOTS 之一里面。
+    """
+    rel = unquote(rel or "").replace("\\", "/").lstrip("/")
+    if not rel or "\x00" in rel:
+        return None
+    parts = rel.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        return None
+    if os.path.splitext(rel)[1].lower() not in IMG_EXT:
+        return None
+    full = os.path.normpath(os.path.join(WS, rel))
+    for root in IMG_ROOTS:
+        try:
+            if os.path.commonpath([full, os.path.abspath(root)]) == os.path.abspath(root) \
+                    and os.path.isfile(full):
+                return full
+        except ValueError:                     # 不同盘符/无法比较
+            continue
+    return None
 
 
 class H(BaseHTTPRequestHandler):
@@ -390,12 +445,40 @@ class H(BaseHTTPRequestHandler):
             return self._json(500, {"ok": False, "err": f"{type(e).__name__}: {e}"})
         return self._json(code, out)
 
+    def _send_file(self, full, ctype, cache="no-cache"):
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            size = -1
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", cache)
+        if size >= 0:
+            self.send_header("Content-Length", str(size))
+        self.end_headers()
+        with open(full, "rb") as f:            # 分块发: 扫描件个别有几 MB, 别整个读进内存
+            while True:
+                b = f.read(65536)
+                if not b:
+                    break
+                self.wfile.write(b)
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
             n = len(os.listdir(FEEDBACK)) if os.path.isdir(FEEDBACK) else 0
             return self._json(200, {"ok": True, "repo": DB, "feedback_count": n,
-                                    "token_required": bool(TOKEN)})
+                                    "token_required": bool(TOKEN),
+                                    "images": [os.path.basename(r) for r in IMG_ROOTS]})
+        if path.startswith(IMG_PREFIX):
+            full = resolve_img(path[len(IMG_PREFIX):])
+            if not full:
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            return self._send_file(full, MIME.get(os.path.splitext(full)[1].lower(),
+                                                  "application/octet-stream"), IMG_CACHE)
         full = resolve(path)
         if not full or not os.path.isfile(full):
             self.send_response(404)
@@ -403,18 +486,12 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             return
         ext = os.path.splitext(full)[1].lower()
-        with open(full, "rb") as f:
-            data = f.read()
-        self.send_response(200)
-        self.send_header("Content-Type", MIME.get(ext, "application/octet-stream"))
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        self._send_file(full, MIME.get(ext, "application/octet-stream"))
 
 
 if __name__ == "__main__":
     print(f"简谱旋律查歌 + 零登录投稿 -> http://127.0.0.1:{PORT}/")
     print(f"投稿落库: {DB}  (feedback/ 留档; 给了数字就直接进 scores/)")
+    print(f"每谱一页: /s/<id>  ·  原图: {IMG_PREFIX}<工作区相对路径> <- {IMG_ROOTS}")
     print(f"token 保护: {'开' if TOKEN else '关(仅本机/内网使用)'}")
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

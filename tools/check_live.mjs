@@ -38,5 +38,38 @@ for (const [q, want] of [['33565653253', '神々が恋した幻想郷'], ['63731
 // ④ 部署的数据确实是修好的那份(th10_06 应为 415 音)
 const th = idx.songs.find((s) => String(s.file).includes('th10_06'));
 ok(th && th.n === 415, `th10_06 音符数 = ${th && th.n} (期望 415)`);
+
+// ⑤ 「每谱一页」的**服务端**两件事: /s/<id> 要能刷新, /img/<路径> 要真把原图发出来 + 挡住越界
+const tune = idx.songs.find((s) => s.id && s.file && s.file.length);
+const pageR = await fetch(BASE + '/s/' + encodeURIComponent(tune.id));
+const pageTxt = pageR.ok ? await pageR.text() : '';
+ok(pageR.ok && /id="tune"/.test(pageTxt) && /id="home"/.test(pageTxt),
+   `/s/${tune.id} 深链返回同一个 index.html (HTTP ${pageR.status})`);
+const ir = await fetch(BASE + '/data/images.jsonl.gz');
+ok(ir.ok, `/data/images.jsonl.gz HTTP ${ir.status} ${ir.headers.get('content-type')}`);
+const imgIdx = new Map(gunzipSync(Buffer.from(await ir.arrayBuffer())).toString('utf8')
+  .split('\n').filter(Boolean).map((l) => { const x = JSON.parse(l); return [x.s, x]; }));
+ok(imgIdx.size > 0, `原图索引 ${imgIdx.size} 个 source`);
+const cov = idx.songs.filter((s) => s.source && imgIdx.has(s.source)).length;
+ok(st.with_images === cov,
+   `stats.with_images = ${st.with_images} 首 == 索引里真有图的 ${cov} 首 (${st.image_pages} 页)`);
+const withImg = idx.songs.find((s) => s.source && imgIdx.has(s.source));
+if (withImg) {
+  const im = imgIdx.get(withImg.source);
+  const url = BASE + '/img/' + im.d.split('/').map(encodeURIComponent).join('/') + '/'
+    + im.pg[0][0].split('/').map(encodeURIComponent).join('/');
+  const g = await fetch(url);
+  const buf = Buffer.from(await g.arrayBuffer());
+  ok(g.ok && /^image\//.test(g.headers.get('content-type') || '') && buf.length > 1000,
+     `原图取到了: ${im.d.split('/').slice(0, 2).join('/')}/… (${g.status} ${g.headers.get('content-type')} ${buf.length} 字节)`);
+  ok((g.headers.get('cache-control') || '').includes('max-age'), '原图带长缓存头');
+  // 目录穿越 / 非图片扩展名: 一律挡住(这里挂的是本机文件系统的 8.9GB 扫描件, 不能漏)
+  for (const bad of ['/img/../jianpu-db/score.py', '/img/%2e%2e/jianpu-db/score.py',
+                     '/img/images/../../etc/passwd', '/img/images-prep/x/../../../etc/passwd',
+                     '/img/' + im.d + '/notimage.txt']) {
+    const b = await fetch(BASE + bad);
+    ok(!b.ok, `挡住越界/非图: ${bad} -> HTTP ${b.status}`);
+  }
+}
 console.log(`\n${fail === 0 ? '通过' : '失败 ' + fail + ' 项'}  —— ${BASE}`);
 process.exit(fail ? 1 : 0);

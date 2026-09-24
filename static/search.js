@@ -27,6 +27,7 @@ export function buildIndex(text) {
     try { r = JSON.parse(line); } catch { continue; }
     if (!r.p) continue;
     songs.push({
+      id: r.id || '',                        // 「每谱一页」的地址 /s/<id>(见 build_web_data.py: tune_id)
       title: r.t, group: r.g, source: r.s, status: r.st, n: r.n,
       p: r.p, a: r.a || '', o: r.o || '', raw: r.raw || '', trunc: !!r.trunc,
       bars: r.bars || [], bpb: r.bpb || 4,
@@ -47,7 +48,10 @@ export function buildIndex(text) {
     const k = popKey(g);
     pop.set(k, (pop.get(k) || 0) + v.length);
   }
-  return { songs, groups, pop, count: songs.length, groupCount: groups.size };
+  // 每谱一页: id -> 那一首。**按 id 查表**, 前端不重算 id(口径只有 build_web_data.py 一处)
+  const byId = new Map();
+  for (const s of songs) if (s.id && !byId.has(s.id)) byId.set(s.id, s);
+  return { songs, groups, pop, byId, count: songs.length, groupCount: groups.size };
 }
 
 /** 每首歌把 p/a/o 三级数组缓存到对象上(第一次访问时构建) */
@@ -125,6 +129,7 @@ export function search(idx, segs, opt) {
     const n = h.q.length;
     const arr = arraysOf(h.song);
     return {
+      id: h.song.id || '',
       title: h.song.title, group: r.group, source: h.song.source, status: h.song.status,
       n: h.song.n, cost: r.total, exact: r.exact, qlen: n, at: h.at,
       raw: h.song.raw, trunc: h.song.trunc, bars: h.song.bars, bpb: h.song.bpb,
