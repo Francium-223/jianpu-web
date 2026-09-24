@@ -54,9 +54,14 @@ for (const c of cards.slice(0, N)) {
   const lk = (c.match(/class="lab">收录页<\/span>([\s\S]*?)<span class="alrow"/) || [])[1] || '';
   let line = '';
   for (const m of lk.matchAll(/<a class="exact"[^>]*>([^<]*)<\/a>/g)) line += '[' + m[1].replace(' ↗', '') + ' ✓] ';
-  const grey = [...lk.matchAll(/<span class="exact pending"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
+  const grey = [...lk.matchAll(/<a class="exact pending"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1]);
   const plus = (lk.match(/class="plus"/g) || []).length;
-  if (grey.length) line += grey.map((g) => '[' + g + ' 待补]＋').join(' ') + ' ';
+  if (grey.length) line += grey.map((g) => '[' + g + ' 黄·可搜]＋').join(' ') + ' ';
   if (plus > grey.length) line += '[＋ 其它站]';
   console.log('   收录页：' + (line.trim() || '(无)'));
+  if (process.env.SHOW_HREF) {   // SHOW_HREF=1 -> 把黄片指向的搜索链接也打出来
+    for (const m of lk.matchAll(/<a class="exact pending" href="([^"]+)"/g)) {
+      console.log('      ↳ ' + decodeURIComponent(m[1]).slice(0, 90));
+    }
+  }
 }

@@ -61,7 +61,7 @@ ok(!errors.length, '没有运行时错误' + (errors.length ? ' -> ' + errors.jo
 ok(out.length > 200, '#out 真的渲染出了内容');
 ok(!/undefined|NaN|\[object Object\]/.test(out), 'HTML 里没有 undefined / NaN / [object Object]');
 for (const [name, re] of [['卡片', /class="card/], ['标黑', /<mark>/], ['收录页那行', /class="lab">收录页/],
-                          ['待补充或精确链接', /(class="exact"|待补充)/], ['灰色待补片', /class="exact pending"/], ['圆形 ＋', /class="plus"/],
+                          ['待补充或精确链接', /(class="exact"|待补充)/], ['黄色待补片(指向搜索页的链接)', /<a class="exact pending" href=/], ['圆形 ＋', /class="plus"/],
                           ['歌手行', /<th>歌手<\/th>/],
                           ['补收录页表单', /class="addlink"/], ['小节线', /class="bar"/]]) {
   ok(re.test(out), '结果卡里有「' + name + '」');

@@ -97,7 +97,10 @@ if (with_src) {
      `有原谱站确切页时渲染出精确链接 (${with_src.srcurl})`);
   // 用户口径(2026-09-24): 没收录的平台要写成**与已收录同形状的灰色片子** + 圆形 ＋, 而不是一串文字
   ok(h.includes('class="exact pending"') && /网易云音乐/.test(h),
-     '没收录的平台渲染成灰色同形片子(网易云音乐…)');
+     '没收录的平台渲染成同形状的黄色片子(网易云音乐…)');
+  const pendLinks = [...h.matchAll(/<a class="exact pending" href="([^"]+)"/g)].map((m) => m[1]);
+  ok(pendLinks.length >= 3 && pendLinks.every((u) => /search|results/i.test(u)),
+     `黄片是**链接**, 且都指向该平台的搜索页(${pendLinks.length} 个: ${pendLinks.slice(0, 2).join(' , ')})`);
   ok(h.includes('class="plus"') && h.includes('data-ph='),
      '灰片后面有圆形 ＋ 按钮(带该平台的占位提示)');
   ok(h.includes('class="alrow"') && h.includes('class="al-go"'),
@@ -110,13 +113,17 @@ if (no_src) {
   ok(h.includes('class="exact pending"'), `一条确切页都没有时, 四个平台全是灰色片子 (${no_src.title})`);
 }
 {
+  // 平台表在 schema.py(5 个: 网易云/QQ/B站/YouTube/**MusicBrainz**) -> "全部补齐"要连 MB 一起填
   const all = fake(no_src || with_src, { srcurl: 'http://www.jianpu.cn/pu/15/150657.htm', links: [
     'https://music.163.com/song?id=186016', 'https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV',
-    'https://www.bilibili.com/video/BV1xx411c7mD', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'] });
+    'https://www.bilibili.com/video/BV1xx411c7mD', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://musicbrainz.org/recording/9c1f4a5e-0000-4000-8000-000000000000'] });
   const h = app.exactLinks(all, 'melody');
   ok(h.includes('网易云音乐') && h.includes('YouTube') && h.includes('song?id=186016'),
      '人工补的 links 会渲染成精确链接(站名由 host 认出来)');
-  ok(!h.includes('class="exact pending"'), '四个平台都补齐后不再有灰色片子');
+  ok(h.includes('MusicBrainz') && !/MusicBrainz<\/a>/.test(h),
+     'MusicBrainz 也按 host 认领(不再出黄色片子)');
+  ok(!h.includes('class="exact pending"'), '四个平台都补齐后不再有黄色片子');
 }
 console.log(fail === 0 ? '\n高亮+收录页 自检 通过' : `\n高亮+收录页 自检 失败 ${fail} 项`);
 if (fail) process.exitCode = 1;

@@ -123,7 +123,18 @@ def main():
     with gzip.open(os.path.join(a.out, "songs.jsonl"), "wb", compresslevel=0) as g:
         for r in rows:                        # 老浏览器回退(不压缩)
             g.write((json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
-    stats = {"songs": len(rows), "notes": notes, "groups": len({r["g"] for r in rows}),
+    # 收录平台表(搜索页格式的**唯一真源**在 jianpu-db/schema.py) -> 塞进 stats.json 给前端读。
+    # 前端不自己写一份, 免得"每个平台的搜索 URL 长什么样"漂成两处。
+    platforms = []
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "jianpu-db"))
+        import schema as _schema
+        platforms = list(getattr(_schema, "PLATFORMS", []))
+    except Exception as e:                       # jianpu-db 不在旁边(如独立部署 web) -> 前端会用内建兜底
+        print(f"  ! 读不到 schema.PLATFORMS({type(e).__name__}), 前端将用内建兜底表")
+    stats = {"platforms": platforms,
+             "songs": len(rows), "notes": notes, "groups": len({r["g"] for r in rows}),
              "sources": dict(sorted(srcs.items(), key=lambda x: -x[1])),
              "bytes_gz": os.path.getsize(outj),
              "with_accidental": sum(1 for r in rows if "1" in r["a"] or "2" in r["a"]),

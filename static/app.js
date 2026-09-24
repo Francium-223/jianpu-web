@@ -54,12 +54,23 @@ function siteLabel(u) {
  *   * 点 ＋ 就地粘网址, 保存后**自动补上**(片子变绿), 不用刷新页面。
  *   搜索行("去哪里搜")**已按用户要求去掉** —— 搜索页不进语料, 也不该占版面。
  */
+// **单一真源在 `jianpu-db/schema.py` 的 PLATFORMS**(搜索页格式只写一处), 经 data/stats.json 带过来。
+// 下面这张只是"stats 还没加载 / 独立部署 web"时的兜底, 字段顺序: [名, 认领正则, 粘确切页的提示, 搜索页模板]
 var PLATFORMS = [
-  ['网易云音乐', /music\.163\.com/, 'https://music.163.com/song?id=…'],
-  ['QQ音乐', /y\.qq\.com/, 'https://y.qq.com/n/ryqq/songDetail/…'],
-  ['B站', /bilibili\.com/, 'https://www.bilibili.com/video/…'],
-  ['YouTube', /youtube\.com|youtu\.be/, 'https://www.youtube.com/watch?v=…'],
+  ['网易云音乐', /music\.163\.com/, 'https://music.163.com/song?id=…', 'https://music.163.com/#/search/m/?s={q}&type=1'],
+  ['QQ音乐', /y\.qq\.com/, 'https://y.qq.com/n/ryqq/songDetail/…', 'https://y.qq.com/n/ryqq/search?w={q}'],
+  ['B站', /bilibili\.com/, 'https://www.bilibili.com/video/…', 'https://search.bilibili.com/all?keyword={q}'],
+  ['YouTube', /youtube\.com|youtu\.be/, 'https://www.youtube.com/watch?v=…', 'https://www.youtube.com/results?search_query={q}'],
+  ['MusicBrainz', /musicbrainz\.org/, 'https://musicbrainz.org/recording/…', 'https://musicbrainz.org/search?query={q}&type=recording'],
 ];
+function loadPlatforms(st) {
+  if (!st || !st.platforms || !st.platforms.length) return;
+  try {
+    PLATFORMS = st.platforms.map(function (p) {
+      return [p.name, new RegExp(p.host || '.', 'i'), p.exact || 'https://…', p.search || ''];
+    });
+  } catch (e) { /* 保持内建兜底 */ }
+}
 var ALROW_N = 0;                       // 每张卡一个就地输入框, 用 id 串起来(不靠 DOM 遍历)
 
 function collectedUrls(r) {
@@ -88,10 +99,14 @@ export function exactLinks(r, ctx) {
       '">' + esc(p[0]) + ' ↗</a>';
   }).join('');
 
-  // 缺的平台: 灰色片子(与已收录同形状) + 圆形 ＋
+  // 缺的平台: **黄色片子(与已收录同形状)**, 点进去是**该平台的搜索页**(帮人去找);
+  // 旁边那颗圆形 ＋ 是"把确切页粘进来"(存下后片子变绿)。搜索页格式来自 schema.py。
+  var qq = encodeURIComponent(r.title || r.group || '');
   PLATFORMS.forEach(function (p) {
     if (urls.some(function (u) { return p[1].test(u); })) return;
-    html += '<span class="exact pending" title="还没有确切页面">' + esc(p[0]) + '</span>' +
+    var href = (p[3] || '').replace('{q}', qq);
+    html += '<a class="exact pending" href="' + href + '" target="_blank" rel="noopener"' +
+      ' title="还没收录 —— 点开去 ' + esc(p[0]) + ' 搜这首歌">' + esc(p[0]) + '</a>' +
       (f ? '<button type="button" class="plus" data-row="' + rid + '" data-ph="' + esc(p[2]) +
            '" data-plat="' + esc(p[0]) + '" title="补 ' + esc(p[0]) + ' 的确切页面">＋</button>' : '');
   });
@@ -486,7 +501,8 @@ $('sfill').addEventListener('click', function () {
 
 loadCorpus().then(function (txt) {
   IDX = buildIndex(txt);
-  return fetch('/data/stats.json').then(function (r) { return r.json(); });
+  return fetch('/data/stats.json').then(function (r) { return r.json(); })
+    .then(function (st) { loadPlatforms(st); return st; });
 }).then(function (st) {
   $('stats').textContent = '语料 ' + st.songs + ' 首（' + st.groups + ' 个曲名组），' +
     st.notes.toLocaleString() + ' 个音符，含变音记号 ' + st.with_accidental + ' 首。';
