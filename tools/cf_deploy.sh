@@ -16,11 +16,13 @@ fail=0
 ok() { printf '%s %s\n' "$([ "$1" = 1 ] && echo '✓' || echo '✗')" "$2"; [ "$1" = 1 ] || fail=1; }
 
 [ -x node_modules/.bin/wrangler ] || { echo "先装依赖: npm install"; exit 1; }
-if ! npx wrangler whoami >/dev/null 2>&1; then
+# ⚠ `wrangler whoami` 在没登录时**也返回 0**, 只是打印 "You are not authenticated" —— 必须看输出
+WHO="$(npx wrangler whoami 2>&1)"
+if echo "$WHO" | grep -qi "not authenticated"; then
   echo "还没登录: 先跑一次  npx wrangler login  （浏览器点一下授权）"
   exit 1
 fi
-echo "账号: $(npx wrangler whoami 2>/dev/null | grep -iE 'account|邮箱|email' | head -2 | tr '\n' ' ')"
+echo "账号: $(echo "$WHO" | grep -E '│' | head -3 | tr -s ' ' | tr '\n' ' ')"
 
 if [ "$MAKE_BUCKET" = 1 ]; then
   echo "== 建 R2 桶 $BUCKET（已存在会报错, 忽略即可）=="
