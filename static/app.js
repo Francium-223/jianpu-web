@@ -150,8 +150,7 @@ function addTagForm(r) {
   var f = (r.file && r.file[0]) || '';
   if (!f) return '';
   return '<details class="addlink"><summary>＋ 补标签</summary>' +
-    '<p class="hint">给这首加标签（多个用逗号）。分类写「分类/儿歌」「分类/民歌」这种；' +
-    '歌手直接写名字（如「邓丽君」）。输入时会提示语料里已有的标签。</p>' +
+    '<p class="hint">多个用逗号；分类写「分类/儿歌」，歌手直接写名字。</p>' +
     '<input class="al-url at-tags" list="taglist" placeholder="分类/儿歌, 邓丽君" spellcheck="false" />' +
     '<button class="al-go-tags" data-file="' + esc(f) + '">保存</button>' +
     '<span class="al-msg"></span></details>';
@@ -239,7 +238,7 @@ function run(e) {
   }
   if (!segs.length) {
     $('status').className = 'status err';
-    $('status').textContent = '请至少输入 5 个音（只认 1-7；可带 # 或 b）。空格不分段，逗号/分号/竖线分段。';
+    $('status').textContent = '至少 5 个音（1–7，可带 # 或 b）。';
     return;
   }
   $('status').className = 'status';
@@ -342,8 +341,7 @@ function showTune(id) {
     t.innerHTML = '<p class="crumb"><a class="tune" href="' + esc(APP_PATH) + '">← 回检索</a></p>' +
       '<h1 class="tune-h1">没有这一页</h1>' +
       '<p class="hint">地址里的编号 <code>' + esc(id) + '</code> 不在语料里' +
-      '（id 是 source，如 <code>jianpucn-150657</code>；没有 source 的谱用 <code>f-文件名</code>）。' +
-      '也可能是索引刚重建过 —— 回检索页搜一下看看。</p>';
+      '（id 就是 source，如 <code>jianpucn-150657</code>）。</p>';
     document.title = '没有这一页 — 简谱旋律查歌';
     return;
   }
@@ -382,7 +380,7 @@ function tuneHtml(r) {
     // 用户口径 2026-09-24("用用户写的文件一字不差")。老数据没有 src 时退回 raw。
     ((r.src || r.raw)
       ? '<pre class="sheet">' + esc(r.src || r.raw) + '</pre>' +
-        (r.src ? '' : '<p class="hint">（这份索引较早，只有展开过的原文；重建索引后就是文件原文。）</p>')
+        (r.src ? '' : '<p class="hint">（旧索引：这里是展开过的原文。）</p>')
       : '<p class="hint">没有原文。</p>') +
     '<footer><a class="tune" href="' + esc(APP_PATH) + '">← 回检索页</a></footer>';
 }
@@ -436,14 +434,14 @@ function addLocalTags(file, tags) {
 function tuneChip(r, ctx) {
   if (!r || !r.id || ctx === 'tune') return '';
   return '<a class="tune-link tune" href="' + esc(tunePath(r.id)) + '" data-tune="' + esc(r.id) + '"' +
-    ' title="这一首的独立页面：原图 + 全部元数据">本谱一页</a>';
+    ' title="本谱一页">本谱一页</a>';
 }
 
 function tuneTitle(r) {
   var name = esc(r.group || r.title || '');
   if (!r.id) return '<span class="title">' + name + '</span>';
   return '<a class="title tune" href="' + esc(tunePath(r.id)) + '" data-tune="' + esc(r.id) + '"' +
-    ' title="打开这一首的页面（原图 + 元数据）">' + name + '</a>';
+    ' title="打开这一首的页面">' + name + '</a>';
 }
 
 function render(segs, res, ms) {
@@ -486,10 +484,8 @@ function render(segs, res, ms) {
       '</div></div>';
   }
   $('out').innerHTML = html +
-    '<p class="hint">代价 0 = 连升降号都一致；你没写记号时对上带 #/b 的音记 1，' +
-    '写了记号而库里是自然音记 2。“记号”是升降号完全一致的音数。' +
-    '<b>收录页</b>是这首歌在那一站的<b>具体页面</b>（人工补的 + 原谱站核对过的）；' +
-    '<b>去找这一页</b>只是帮你到各站搜出页面，本身不是收录链接。</p>';
+    '<p class="hint">代价 0 = 连升降号都对上；「记号」是升降号一致的音数。' +
+    '<b>收录页</b>是这首歌在该站的具体页面。</p>';
 }
 
 $('form').addEventListener('submit', run);
@@ -655,8 +651,8 @@ var MIRROR = 'https://jianpu-web.pages.dev/';       // 有写回的那份(Cloudf
 
 function readonlyInto(el) {
   el.className = (el.classList && el.classList.contains('al-msg')) ? 'al-msg err' : 'status err';
-  el.innerHTML = '这里只读：查歌与谱页都能用，但投稿/补收录/补标签要写回本机服务 —— 请到 ' +
-    '<a href="' + MIRROR + '" target="_blank" rel="noopener">jianpu-web.pages.dev</a> 提交。';
+  el.innerHTML = '只读镜像：投稿请到 ' +
+    '<a href="' + MIRROR + '" target="_blank" rel="noopener">jianpu-web.pages.dev</a>。';
 }
 
 var LAST = '', LASTFILE = '';   // 供「投稿」表单: 曲名 + 刚查的那一份曲谱文件
@@ -691,24 +687,23 @@ function submit() {
       } else {
         $('sstatus').className = 'status err';
         $('sstatus').textContent = '提交失败：' + ((x.j && x.j.err) || ('HTTP ' + x.s)) +
-          '。可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+          '。也可以提 Issue：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">预填 Issue</a>';
         $('sstatus').innerHTML = $('sstatus').textContent;
       }
     })
     .catch(function (e) {
       $('sgo').disabled = false;
       $('sstatus').className = 'status err';
-      $('sstatus').innerHTML = '连不上投稿服务（' + e.message + '）。' +
-        '可用 GitHub 兜底：<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">打开预填 Issue</a>';
+      $('sstatus').innerHTML = '连不上投稿服务（' + e.message + '）。也可以提 ' +
+        '<a href="' + issueUrl(t) + '" target="_blank" rel="noopener">Issue</a>';
     });
 }
 
 $('sform').addEventListener('submit', function (e) { e.preventDefault(); submit(); });
 if (READONLY) {           // 表单还在, 但先把话说清楚 —— 免得人填完才发现写不进去
   $('sform').insertAdjacentHTML('beforebegin',
-    '<p class="lead" id="ro-note">⚠ 本页是 <b>GitHub Pages 只读镜像</b>：查歌与谱页完全可用；' +
-    '投稿/补标签要写回本机服务，请到 <a href="' + MIRROR + '" target="_blank" rel="noopener">' +
-    'jianpu-web.pages.dev</a> 提交。</p>');
+    '<p class="lead" id="ro-note">⚠ 只读镜像：查歌、谱页可用；投稿请到 ' +
+    '<a href="' + MIRROR + '" target="_blank" rel="noopener">jianpu-web.pages.dev</a>。</p>');
 }
 $('sfill').addEventListener('click', function () {
   if (LAST) { $('stitle').value = LAST; }
