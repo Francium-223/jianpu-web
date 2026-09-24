@@ -13,12 +13,17 @@
     // /s/<id> 这类前端路由: 找不到文件就回 index.html（单页应用）
     "not_found_handling": "single-page-application"
   },
-  // 原图 5GB: 放 R2（免费额度 10GB, 出网不收钱）。桶名按你建的改。
-  // 先建桶:  npx wrangler r2 bucket create jianpu-images
-  // 传图:    python3 tools/r2_filelist.py && bash tools/r2_sync.sh
-  "r2_buckets": [
-    { "binding": "IMAGES", "bucket_name": "jianpu-images" }
-  ],
+  // ⚠ 2026-09-24: R2 绑定**先注释掉** —— 账号还没开通 R2, 桶建不出来, 而 `wrangler deploy`
+  //   会在绑定校验那步直接失败(code 10085 "R2 bucket 'jianpu-images' not found"),
+  //   这就是 GitHub 那条构建流水线报红的**唯一原因**（本机 `wrangler deploy` 复现了同样的错）。
+  //   开通 R2（面板 → Storage & databases → R2 → 选 Free 计划）并建好桶之后, 把下面这段
+  //   放回来 + 重新部署, 原图就完全走边缘:
+  //     npx wrangler r2 bucket create jianpu-images
+  //     python3 tools/r2_filelist.py && bash tools/r2_sync.sh      # 传 5.08GB
+  //
+  // "r2_buckets": [
+  //   { "binding": "IMAGES", "bucket_name": "jianpu-images" }
+  // ],
   // 原图兜底（可选）: 没绑 R2 / 桶里没有这张图时, 反代到这个地址取（就是本机 8770 的公网地址）。
   //   npx wrangler secret put IMG_UPSTREAM     # 例 https://xxx.trycloudflare.com
   //   于是"暂时不想开 R2"也能先把站点跑起来（代价: 原图走家里上行, 慢一些）。
