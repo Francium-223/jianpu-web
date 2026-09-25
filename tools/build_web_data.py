@@ -34,6 +34,33 @@ ZW = dict.fromkeys(map(ord, "\u200b-\u200f\u202a-\u202e\u2060\ufeff"), None)
 TOK = re.compile(r"^([cqsdh]*)([,']*)([#b♯♭]?)([1-7x0])([,']*)([#b♯♭]?)([cqsdh]*)[.]*([\[\]]?)$")
 
 
+
+def _sections_compact(r, n_notes):
+    """"起始音下标:段落名,…"(没有分段或对不上就返回空串)。
+
+    为什么要有它: 段落权重只在**同分**时决定取哪一处出现(副歌 vs 前奏), 前奏/发狂钢琴要降权;
+    段内音高音数之和必须等于整串音数, 否则说明段序与 score 拼不上, 宁可当"没分段"。
+    """
+    secs = r.get("sections") or []
+    if not secs:
+        return ""
+    out, off = [], 0
+    for s in secs:
+        name = (s.get("subtitle") or "").strip() or "score"
+        cnt = 0
+        for t in (s.get("score") or "").split():
+            if not parse(t):                 # 非音符 token: parse 可能直接返回 None
+                continue
+            d, _a, _o = parse(t)
+            if d is not None:
+                cnt += 1
+        if cnt:
+            out.append("%d:%s" % (off, name))
+            off += cnt
+    if off != n_notes or not any(not x.endswith(":score") for x in out):
+        return ""
+    return ",".join(out)
+
 def parse(t):
     if jptok:
         return jptok.parse_token(t)
@@ -172,6 +199,10 @@ def main():
             # **按音符序号而非 token 序号**, 前端在音符流里对应位置插 `|`。
             "bars": [int(x) for x in (r.get("bars") or []) if isinstance(x, int)],
             "bpb": float(r.get("beats_per_bar") or 4.0),
+            # 段落(用户 2026-09 规格, 见 README_PIPELINE.md §六): "起始音下标:段落名,…" 的紧凑串,
+            # 给前端算**段落权重**(副歌/主歌 > 间奏 > 整曲 > 前奏/尾奏/发狂钢琴)。
+            # 口径与 jianpu2/tools/melody_search.py 的 section_map 同一份(段内音高音数累加, 总数不符就不用)。
+            "sc": _sections_compact(r, len(p)),
             # 其余元数据一并带出(用户要求: 前端不光标题, 别的元数据也都摊开)
             "file": r.get("file") or [],
             "tags": r.get("tag") or [],

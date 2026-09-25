@@ -33,6 +33,7 @@ export function buildIndex(text) {
       raw: r.raw || '', trunc: !!r.trunc,
       src: r.src || '',            // 原谱原文 verbatim(每谱一页用; 与 raw 的"展开版"不同)
       bars: r.bars || [], bpb: r.bpb || 4,
+      sc: r.sc || '',                // 段落表("起始下标:段落名,…"): 段落权重用(副歌优先于前奏)
       file: r.file || [], tags: r.tags || [], usertags: r.usertags || [],
       alias: r.alias || [], artist: r.artist || [], transcriber: r.transcriber || [],
       hot: r.hot || 0,               // 知名度代理(该曲歌手/标签在语料里的谱数, 见 build_web_data.py)
@@ -83,6 +84,61 @@ function arraysOf(s) {
   return s._p;
 }
 
+// 段落权重: 用户 2026-09 规格(见 jianpu2/README_PIPELINE.md §六)。口径与 melody_search.py 一致:
+// chorus/refrain 1.6 · verse 1.25 · pre-chorus/bridge/interlude 1.10 · score 1.00 ·
+// intro/outro/layer/crazy-piano 0.80; 组合标签取最大; 不认识的当 1.00。
+export const SEC_W = { chorus: 1.6, refrain: 1.6, verse: 1.25, 'pre-chorus': 1.10, bridge: 1.10,
+  interlude: 1.10, score: 1.00, intro: 0.80, outro: 0.80, layer: 0.80, 'crazy-piano': 0.80 };
+export const SEC_CN = { chorus: '副歌', refrain: '副歌', verse: '主歌', 'pre-chorus': '前副歌',
+  bridge: '桥段', interlude: '间奏', score: '整曲', intro: '前奏', outro: '尾奏', layer: '过渡',
+  'crazy-piano': '发狂钢琴', 'maybe-rap': '说唱?' };
+
+export function secWeightOf(name) {
+  if (!name) return 1.0;
+  let w = 1.0;
+  for (const x of String(name).split(',')) {
+    const k = x.trim().toLowerCase();
+    if (k && SEC_W[k] !== undefined && SEC_W[k] > w) w = SEC_W[k];
+  }
+  return w;
+}
+
+export function secLabelOf(name) {
+  if (!name) return '';
+  return String(name).split(',').map((x) => SEC_CN[x.trim().toLowerCase()] || x.trim())
+    .filter(Boolean).join('/');
+}
+
+/** 紧凑串 "起始下标:段落名,…" -> [[起始, 权重], …](解析一次缓存在歌曲对象上)。 */
+function secOf(s) {
+  if (s._sec !== undefined) return s._sec;
+  s._sec = [];
+  if (s.sc) {
+    for (const part of s.sc.split(',')) {
+      const i = part.indexOf(':');
+      if (i < 0) continue;
+      s._sec.push([parseInt(part.slice(0, i), 10) || 0, part.slice(i + 1)]);
+    }
+  }
+  return s._sec;
+}
+
+/** 命中区间 [i, i+n) 覆盖到的段落名(取权重最大的那个); 没分段返回空串。 */
+function secNameAt(s, i, n) {
+  const sec = secOf(s);
+  if (!sec.length) return '';
+  let best = '', bw = -1;
+  for (let k = 0; k < sec.length; k++) {
+    const start = sec[k][0];
+    const end = k + 1 < sec.length ? sec[k + 1][0] : 1e9;
+    if (start < i + n && end > i) {
+      const w = secWeightOf(sec[k][1]);
+      if (w > bw) { bw = w; best = sec[k][1]; }
+    }
+  }
+  return best;
+}
+
 function cost(q, cd, ca) {
   if (q.d !== cd) return 4;
   if (q.acc === ca) return 0;
@@ -113,9 +169,15 @@ export function search(idx, segs, opt) {
           let c = 0;
           for (let k = 0; k < n; k++) {
             c += cost(q[k], P[i + k], A[i + k]);
-            if (best && c >= best.cost) break;
+            // 早退用**严格大于**: 同分窗口要看段落权重(副歌优先于前奏), 不能被 >= 提前砍掉
+            if (best && c > best.cost) break;
           }
-          if (!best || c < best.cost) best = { cost: c, at: i, song: s, q: q };
+          if (!best || c < best.cost) {
+            best = { cost: c, at: i, song: s, q: q, sec: secNameAt(s, i, n) };
+          } else if (c === best.cost) {
+            const nm = secNameAt(s, i, n);
+            if (secWeightOf(nm) > secWeightOf(best.sec)) best = { cost: c, at: i, song: s, q: q, sec: nm };
+          }
         }
       }
       if (!best) { ok = false; break; }
@@ -126,7 +188,13 @@ export function search(idx, segs, opt) {
       }
       det.push(best);
     }
-    if (ok && det.length) res.push({ group, total, exact, det });
+    // 段落权重: 取各段命中的**最大**权重(与 melody_search.py 的多段口径一致)
+    let secW = 1.0, sec = '';
+    for (const d of det) {
+      const w = secWeightOf(d.sec);
+      if (w > secW) { secW = w; sec = d.sec; }
+    }
+    if (ok && det.length) res.push({ group, total, exact, det, secW, sec });
   }
   res.sort((x, y) =>
     x.total - y.total ||
@@ -135,7 +203,8 @@ export function search(idx, segs, opt) {
     (idx.hot.get(y.group) || 0) - (idx.hot.get(x.group) || 0) ||   // 并列: 歌手在库里谱多的先
     (BAD.test(x.group) ? 1 : 0) - (BAD.test(y.group) ? 1 : 0) ||
     x.group.length - y.group.length ||
-    (x.group < y.group ? -1 : 1));
+    (x.group < y.group ? -1 : 1) ||
+    y.secW - x.secW);                                            // 段落权只当最后的并列裁决(不干扰"哪首歌")
   return res.slice(0, top).map((r) => {
     const h = r.det[0];
     const n = h.q.length;
@@ -150,6 +219,7 @@ export function search(idx, segs, opt) {
       alias: h.song.alias, artist: h.song.artist, transcriber: h.song.transcriber, mbid: h.song.mbid,
       links: h.song.links || [], srcurl: h.song.srcurl || '',
       hot: idx.hot.get(r.group) || 0,
+      sec: r.sec || '', secW: r.secW || 1.0, secCn: secLabelOf(r.sec),
       libNotes: Array.from({ length: n }, (_, k) => ({ d: arr.P[h.at + k], acc: arr.A[h.at + k] })),
       qNotes: h.q,
     };

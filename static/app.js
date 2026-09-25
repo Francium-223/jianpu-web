@@ -472,7 +472,7 @@ function render(segs, res, ms) {
         '<span class="badge">' + esc(r.status || '?') + '</span>' +
       '</div>' +
       metaRows(r) +
-      '<div class="cmp"><span class="lab">库内该段</span> ' + esc(show(r.libNotes)) +
+      '<div class="cmp"><span class="lab">库内该段' + (r.secCn ? '（' + esc(r.secCn) + '）' : '') + '</span> ' + esc(show(r.libNotes)) +
         '　<span class="lab">你的输入</span> ' + esc(show(r.qNotes)) + '</div>' +
       '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +
       '<div class="links">' +
