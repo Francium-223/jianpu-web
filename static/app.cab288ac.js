@@ -328,7 +328,7 @@ function setMode(tune) {
 function showHome(q) {
   setMode(false);
   CURRENT_TUNE = '';
-  document.title = '简谱旋律查歌';
+  document.title = 'jianpu-db | 通过简谱旋律查歌';
   if (q) {                                   // ?q=… -> 直接替用户查一次(谱页上的"用开头几个音检索"用它)
     $('q').value = q;
     run({ preventDefault: function () {} });
@@ -348,11 +348,11 @@ function showTune(id) {
       '<h1 class="tune-h1">没有这一页</h1>' +
       '<p class="hint">地址里的编号 <code>' + esc(id) + '</code> 不在语料里' +
       '（id 就是 source，如 <code>jianpucn-150657</code>）。</p>';
-    document.title = '没有这一页 — 简谱旋律查歌';
+    document.title = '没有这一页 — jianpu-db';
     return;
   }
   t.innerHTML = tuneHtml(row);
-  document.title = (row.group || row.title || id) + ' — 简谱旋律查歌';
+  document.title = (row.group || row.title || id) + ' — jianpu-db';
 }
 
 /* 每谱一页。**没有"原图"那一栏**（用户口径 2026-09-24: 不转存扫描件、也不外链图片）——
@@ -492,7 +492,7 @@ function render(segs, res, ms) {
       '</div></div>';
   }
   $('out').innerHTML = nf + html +
-    '<p class="hint">代价 0 = 连升降号都对上；「记号」是升降号一致的音数。' +
+    '<p class="hint">「记号」是升降号一致的音数。' +
     '<b>收录页</b>是这首歌在该站的具体页面。</p>';
 }
 
