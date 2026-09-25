@@ -9,6 +9,25 @@ const t0 = Date.now();
 const idx = buildIndex(gunzipSync(gz).toString('utf8'));
 console.log(`索引 ${idx.count} 首 / ${idx.groupCount} 组，${Date.now() - t0} ms\n`);
 
+// ---- 查询串的**贪心**切 token(用户 2026-09-25: "输入 63731232#5 要用贪心算法, 自动把 #5 算成一个 token") ----
+// 规矩: 从左往右尽量多吃; 后置的升降号/八度**只在后面不再是"八度*数字"时**才归当前音。
+let tkFail = 0;
+const tk = (cond, msg) => { console.log((cond ? '✓ ' : '✗ ') + msg); if (!cond) tkFail++; };
+const lastOf = (q) => { const r = parseQuery(q); return r[r.length - 1]; };
+tk(show(parseQuery('63731232#5')) === '6 3 7 3 1 2 3 2 #5',
+   "#5 是一个 token: 63731232#5 -> " + show(parseQuery('63731232#5')));
+tk(parseQuery('63731232#5').length === 9, "共 9 个音(不是 8 也不是 10)");
+tk(lastOf('63731232#5').acc === 1 && lastOf('63731232#5').d === 5, "末音是 #5(升号没粘到前面的 2 上)");
+tk(show(parseQuery('3#5')) === '3 #5', "3#5 -> 3 #5");
+tk(show(parseQuery('6#')) === '#6', "6# -> 尾随升号仍归 6(后面没音了)");
+tk(show(parseQuery('#5')) === '#5', "#5 -> #5");
+tk(show(parseQuery('3b5')) === '3 b5', "3b5 -> 3 b5(降号同理)");
+tk(parseQuery('63731232,5').length === 9 && lastOf('63731232,5').oct === 1,
+   "八度同理: 63731232,5 的逗号归**最后的 5**(该音记到 1 个逗号), 共 9 个音");
+tk(parseQuery('63731232').length === 8 && parseQuery('12 345').length === 5,
+   "纯数字/带空格的输入不受影响");
+if (tkFail) { console.log('\n贪心切 token 失败 ' + tkFail + ' 项'); process.exit(1); }
+
 // [查询, 期望曲名, 说明] —— 期望值以 Python 侧为基准
 const CASES = [
   // 2026-09-25 起按用户选的"段落权重参与排序"(B): 8 音的 63731232 在两首里都 0 代价,

@@ -117,7 +117,7 @@ if (no_src) {
   const all = fake(no_src || with_src, { srcurl: 'http://www.jianpu.cn/pu/15/150657.htm', links: [
     'https://music.163.com/song?id=186016', 'https://y.qq.com/n/ryqq/songDetail/0039MnYb0qxYhV',
     'https://www.bilibili.com/video/BV1xx411c7mD', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-    'https://musicbrainz.org/recording/9c1f4a5e-0000-4000-8000-000000000000'] });
+    'https://musicbrainz.org/work/9c1f4a5e-0000-4000-8000-000000000000'] });
   const h = app.exactLinks(all, 'melody');
   ok(h.includes('网易云音乐') && h.includes('YouTube') && h.includes('song?id=186016'),
      '人工补的 links 会渲染成精确链接(站名由 host 认出来)');

@@ -82,7 +82,7 @@ var PLATFORMS = [
   ['QQ音乐', /y\.qq\.com/, 'https://y.qq.com/n/ryqq/songDetail/…', 'https://y.qq.com/n/ryqq/search?w={q}'],
   ['B站', /bilibili\.com/, 'https://www.bilibili.com/video/…', 'https://search.bilibili.com/all?keyword={q}'],
   ['YouTube', /youtube\.com|youtu\.be/, 'https://www.youtube.com/watch?v=…', 'https://www.youtube.com/results?search_query={q}'],
-  ['MusicBrainz', /musicbrainz\.org/, 'https://musicbrainz.org/recording/…', 'https://musicbrainz.org/search?query={q}&type=recording'],
+  ['MusicBrainz', /musicbrainz\.org/, 'https://musicbrainz.org/work/…', 'https://musicbrainz.org/search?query={q}&type=work'],
 ];
 function loadPlatforms(st) {
   if (!st || !st.platforms || !st.platforms.length) return;
@@ -106,7 +106,7 @@ function exactSources(r) {
     seen[u] = 1;
     out.push([siteLabel(u), u, kind]);
   }
-  if (r.mbid) push('https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid), 'MBID');
+  if (r.mbid) push('https://musicbrainz.org/work/' + encodeURIComponent(r.mbid), 'MBID');
   if (r.srcurl) push(r.srcurl, '原谱站（已核对）');
   (r.links || []).forEach(function (u) { push(u, '收录页'); });
   return out;
@@ -287,7 +287,7 @@ function metaRows(r) {
     ['人标', r.usertags && r.usertags.length ? esc(list(r.usertags)) : '—'],
     ['别名', r.alias && r.alias.length ? esc(list(r.alias)) : '—'],
     ['MBID', r.mbid
-      ? '<a href="https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid) +
+      ? '<a href="https://musicbrainz.org/work/' + encodeURIComponent(r.mbid) +
         '" target="_blank" rel="noopener"><code>' + esc(r.mbid) + '</code></a>'
       : '—'],
   ];

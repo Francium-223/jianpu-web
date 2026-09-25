@@ -31,13 +31,13 @@
     {
       "name": "MusicBrainz",
       "host": "musicbrainz\\.org",
-      "search": "https://musicbrainz.org/search?query={q}&type=recording",
-      "exact": "https://musicbrainz.org/recording/…",
+      "search": "https://musicbrainz.org/search?query={q}&type=work",
+      "exact": "https://musicbrainz.org/work/…",
       "kind": "db"
     }
   ],
   "songs": 7318,
-  "notes": 1300738,
+  "notes": 1300814,
   "groups": 6881,
   "sources": {
     "qupu123": 3344,
@@ -49,11 +49,11 @@
     "21qupu": 1,
     "qpcxw": 1
   },
-  "bytes_gz": 3412613,
+  "bytes_gz": 3412757,
   "with_accidental": 20,
   "with_raw": 7318,
   "with_images": 7277,
-  "image_pages": 9087,
-  "image_sources": 19116,
+  "image_pages": 9088,
+  "image_sources": 19234,
   "img_base": "/img/"
 }

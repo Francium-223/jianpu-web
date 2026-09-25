@@ -83,7 +83,7 @@ ok(out.indexOf('class="nf"') >= 0 && out.indexOf('class="nf"') < out.indexOf('cl
 // 没 MBID 的卡: 黄色待补照旧要有(别一刀切掉)。
 const c0 = out.indexOf('class="card');
 const firstCard = out.slice(c0, out.indexOf('class="card', c0 + 5));
-ok(/class="exact" href="https:\/\/musicbrainz\.org\/recording\//.test(firstCard),
+ok(/class="exact" href="https:\/\/musicbrainz\.org\/work\//.test(firstCard),
    '有 MBID 的歌给出 MusicBrainz 绿色片子（已收录）');
 ok(!/exact pending" href="https:\/\/musicbrainz\.org\/search/.test(firstCard),
    '这首已有 MusicBrainz -> 不再出现黄色待补片子');
