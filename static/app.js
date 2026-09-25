@@ -430,12 +430,8 @@ function addLocalTags(file, tags) {
   });
 }
 
-/* 卡片标题 / 一颗片子 -> 这一首的独立页面 */
-function tuneChip(r, ctx) {
-  if (!r || !r.id || ctx === 'tune') return '';
-  return '<a class="tune-link tune" href="' + esc(tunePath(r.id)) + '" data-tune="' + esc(r.id) + '"' +
-    ' title="本谱一页">本谱一页</a>';
-}
+/* 卡片标题就是这一首的独立页面入口(用户 2026-09-25: "「本谱一页」不要放在下面的链接, 直接把标题做成超链接")
+   —— 所以不再有单独的「本谱一页」片子; 标题的可点提示交给 CSS(a.title 的浅下划线)。 */
 
 function tuneTitle(r) {
   var name = esc(r.group || r.title || '');
@@ -477,7 +473,6 @@ function render(segs, res, ms) {
       '<div class="score">' + renderScore(r.raw, r.at, r.qlen, r.bars) + '</div>' +
       '<div class="links">' +
         '<span class="lab">收录页</span> ' + exactLinks(r, 'melody') +
-        tuneChip(r, 'melody') +
         addTagForm(r) +
         '<a class="add" href="' + issueUrl(r.group) + '" target="_blank" rel="noopener" ' +
         'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +
@@ -525,7 +520,7 @@ function renderTitle(list, q) {
         '<span class="badge">' + esc(x.status || '?') + '</span>' +
       '</div>' + metaRows(x) +
       '<div class="links"><span class="lab">收录页</span> ' + exactLinks(x, 'title') +
-        tuneChip(x, 'title') + addTagForm(x) + '</div>' +
+        addTagForm(x) + '</div>' +
       (x.raw ? '<div class="score">' + esc(x.raw) + '</div>' : '') +
       '</div>';
   }

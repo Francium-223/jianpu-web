@@ -80,6 +80,10 @@ jobs:
         run: |
           set -eu
           cp dist/index.html dist/404.html dist/.nojekyll .
+          # 先清掉**旧的带哈希产物**(app.<hash>.js / search.<hash>.js / style.<hash>.css)——
+          # 分支模式同步会一遍遍往里拷, 不清就会一直攒(仓库根那 4 个旧文件就是这么来的)。
+          # 注意模式里那个点: `app.*.js` 只匹配带哈希的名字, **不会**碰源码 `static/app.js`。
+          rm -f static/app.*.js static/search.*.js static/jptok.*.js static/style.*.css
           cp dist/static/* static/
           cp dist/data/* data/
           git config user.name  'github-actions[bot]'

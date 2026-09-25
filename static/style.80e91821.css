@@ -101,11 +101,12 @@ footer { color: #6b7280; font-size: .84rem; border-top: 1px solid var(--line); m
 .tune-h1 { font-size: 1.5rem; margin: 0 0 .2rem; }
 .tune-sub { color: var(--dim); font-size: .9rem; margin: 0 0 1.1rem; }
 /* 卡片里那颗「本谱一页」: 与「收录页」片子同形状, 但它是**站内跳转**(不新开标签) */
-.links .tune-link { background: #eef3fd; border-color: #b9cdf0; color: #14448a; font-weight: 500; }
-.links .tune-link:hover { border-color: #14448a; }
-/* 卡片标题也是通向那一页的链接: 保持标题的样子, 别整片蓝 */
-a.title { color: inherit; }
-a.title:hover { color: var(--accent); text-decoration: underline; }
+/* 卡片标题**就是**"本谱一页"的入口(2026-09-25 用户: 别在下面再放一个链接)。
+   保持标题的样子(别整片蓝), 但给一条浅下划线当"可点"提示, 悬停才变强调色。 */
+a.title { color: inherit; text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 28%, transparent);
+  text-underline-offset: .18em; }
+a.title:hover { color: var(--accent); text-decoration-color: currentColor; }
 /* 谱页: 看原图要的是宽度, 首页那 52rem 的窄栏放不下一张扫描件 */
 body.tune-mode .wrap { max-width: 78rem; }
 body.tune-mode .lead, body.tune-mode .examples { max-width: 46rem; }

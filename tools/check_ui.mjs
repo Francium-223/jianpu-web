@@ -67,9 +67,11 @@ for (const [name, re] of [['卡片', /class="card/], ['标黑', /<mark>/], ['收
                           ['补收录页表单', /class="addlink"/], ['小节线', /class="bar"/]]) {
   ok(re.test(out), '结果卡里有「' + name + '」');
 }
-// 卡片里那颗「本谱一页」片子: 必须真的指向 /s/<id>(用户要的"每谱一页"入口就在卡片上)
-const chip = (out.match(/<a class="tune-link tune" href="([^"]+)" data-tune="([^"]+)"/) || []);
-ok(!!chip[1] && /\/s\//.test(chip[1]), '卡片里有「本谱一页」片子: ' + (chip[1] || '(没有)'));
+// 2026-09-25 用户: "「本谱一页」不要放在下面的链接, 直接把标题做成超链接"
+// -> 卡片标题本身就是 /s/<id> 的入口, 而且**不再**有单独的「本谱一页」片子。
+const titleLink = (out.match(/<a class="title tune" href="([^"]+)" data-tune="([^"]+)"/) || []);
+ok(!!titleLink[1] && /\/s\//.test(titleLink[1]), '卡片标题就是「本谱一页」入口: ' + (titleLink[1] || '(没有)'));
+ok(!/class="tune-link/.test(out), '不再有单独的「本谱一页」链接');
 
 // 把卡片开头一小段打出来, 方便肉眼核对
 const i = out.indexOf('<div class="links">');

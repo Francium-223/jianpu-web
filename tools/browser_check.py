@@ -187,10 +187,10 @@ def cmd_spa(a):
              "document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true})); return 1")
         time.sleep(4)
         ok(d.js("return document.querySelectorAll('#out .card').length") > 0, "旋律查歌出卡片")
-        href = d.js("var a=document.querySelector('#out a.tune-link'); return a?a.getAttribute('href'):''")
-        ok(bool(href) and "/s/" in href, "卡片上有「本谱一页」链接: " + (href or "(没有)"))
+        href = d.js("var a=document.querySelector('#out a.title.tune'); return a?a.getAttribute('href'):''")
+        ok(bool(href) and "/s/" in href, "卡片标题就是「本谱一页」链接: " + (href or "(没有)"))
         if href:
-            d.js("document.querySelector('#out a.tune-link').click(); return 1")
+            d.js("document.querySelector('#out a.title.tune').click(); return 1")
             time.sleep(2.5)
             o = json.loads(d.js("return JSON.stringify({p:location.pathname,"
                                 "tune:!document.getElementById('tune').hidden,"
@@ -253,10 +253,10 @@ def cmd_spa(a):
              "document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true})); return 1")
         time.sleep(4)
         ok(d.js("return document.querySelectorAll('#out .card').length") > 0, "旋律查歌出卡片")
-        href = d.js("var a=document.querySelector('#out a.tune-link'); return a?a.getAttribute('href'):''")
-        ok(bool(href) and "/s/" in href, "卡片上有「本谱一页」链接: " + (href or "(没有)"))
+        href = d.js("var a=document.querySelector('#out a.title.tune'); return a?a.getAttribute('href'):''")
+        ok(bool(href) and "/s/" in href, "卡片标题就是「本谱一页」链接: " + (href or "(没有)"))
         if href:
-            d.js("document.querySelector('#out a.tune-link').click(); return 1")
+            d.js("document.querySelector('#out a.title.tune').click(); return 1")
             time.sleep(2.5)
             o = json.loads(d.js("return JSON.stringify({p:location.pathname,"
                                 "tune:!document.getElementById('tune').hidden,"
