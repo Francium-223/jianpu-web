@@ -94,14 +94,12 @@ function loadPlatforms(st) {
 }
 var ALROW_N = 0;                       // 每张卡一个就地输入框, 用 id 串起来(不靠 DOM 遍历)
 
-function collectedUrls(r) {
-  var urls = [];
-  if (r.srcurl) urls.push(r.srcurl);
-  (r.links || []).forEach(function (u) { urls.push(u); });
-  return urls;
-}
-
-export function exactLinks(r, ctx) {
+/* **"这首歌已经有了哪些确切页"只有这一处口径** —— 绿色片子(exactLinks)和"还缺哪个平台"
+ * 的判断都用它。2026-09-25 的 bug 就是这里漏了 MBID 那条: 绿色 MusicBrainz 片子已经画出来,
+ * 平台循环却以为 MusicBrainz 还缺, 又补了一颗黄色"待补"片子(用户: "我的 U.N.Owen 已经有
+ * MusicBrainz 了, 你怎么还后面加个黄的链接?")。
+ */
+function exactSources(r) {
   var out = [], seen = {};
   function push(u, kind) {
     if (!u || seen[u]) return;
@@ -111,7 +109,15 @@ export function exactLinks(r, ctx) {
   if (r.mbid) push('https://musicbrainz.org/recording/' + encodeURIComponent(r.mbid), 'MBID');
   if (r.srcurl) push(r.srcurl, '原谱站（已核对）');
   (r.links || []).forEach(function (u) { push(u, '收录页'); });
+  return out;
+}
 
+function collectedUrls(r) {
+  return exactSources(r).map(function (p) { return p[1]; });
+}
+
+export function exactLinks(r, ctx) {
+  var out = exactSources(r);          // 与 collectedUrls 同一份口径
   var urls = collectedUrls(r);
   var f = (r.file && r.file[0]) || '';
   var rid = 'alrow' + (++ALROW_N);

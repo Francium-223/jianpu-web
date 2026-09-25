@@ -78,6 +78,17 @@ ok(/<p class="nf">找不到？<a class="nf-add" href="#sform">欢迎补充。<\/
    '结果最前面有「找不到？欢迎补充。」并指向投稿表单');
 ok(out.indexOf('class="nf"') >= 0 && out.indexOf('class="nf"') < out.indexOf('class="card"'),
    '这行确实在卡片**前面**(不是塞在末尾)');
+// 2026-09-25 用户: "我的 U.N.Owen 已经有 MusicBrainz 了, 你怎么还后面加个黄的链接?"
+// 口径: **按卡片**判断 —— 有 MBID 的那张卡: 绿色 MusicBrainz 必须有、黄色待补必须没有;
+// 没 MBID 的卡: 黄色待补照旧要有(别一刀切掉)。
+const c0 = out.indexOf('class="card');
+const firstCard = out.slice(c0, out.indexOf('class="card', c0 + 5));
+ok(/class="exact" href="https:\/\/musicbrainz\.org\/recording\//.test(firstCard),
+   '有 MBID 的歌给出 MusicBrainz 绿色片子（已收录）');
+ok(!/exact pending" href="https:\/\/musicbrainz\.org\/search/.test(firstCard),
+   '这首已有 MusicBrainz -> 不再出现黄色待补片子');
+ok(/exact pending" href="https:\/\/musicbrainz\.org\/search/.test(out),
+   '没有 MBID 的歌仍然给黄色 MusicBrainz 待补片子(没被一刀切掉)');
 
 // 把卡片开头一小段打出来, 方便肉眼核对
 const i = out.indexOf('<div class="links">');
