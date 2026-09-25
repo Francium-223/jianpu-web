@@ -29,7 +29,8 @@ const idx = buildIndex(text);
 ok(idx && idx.songs && idx.songs.length === st.songs, `buildIndex 成功: ${idx.songs.length} 首`);
 
 // ③ 用前端代码查"人耳那句"与"原谱那句"
-for (const [q, want] of [['33565653253', '神々が恋した幻想郷'], ['63731232', '神々が恋した幻想郷']]) {
+// 63731232: 段落加权后第一是 U.N.オーエンは彼女なのか？(命中在副歌), 神々 那处在发狂钢琴段
+for (const [q, want] of [['33565653253', '神々が恋した幻想郷'], ['63731232', 'U.N.オーエンは彼女なのか？']]) {
   const res = search(idx, [parseQuery(q)], {});
   const top = res[0];
   ok(!!top && top.title.startsWith(want), `${q} -> Top1 "${top && top.title}" 代价 ${top && top.cost}`);

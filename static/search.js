@@ -201,10 +201,10 @@ export function search(idx, segs, opt) {
     y.exact - x.exact ||
     (idx.pop.get(popKey(y.group)) || 0) - (idx.pop.get(popKey(x.group)) || 0) ||
     (idx.hot.get(y.group) || 0) - (idx.hot.get(x.group) || 0) ||   // 并列: 歌手在库里谱多的先
+    y.secW - x.secW ||                                            // 段落权: 副歌/主歌 > 间奏 > 整曲 > 前奏/尾奏/发狂钢琴(用户选 B)
     (BAD.test(x.group) ? 1 : 0) - (BAD.test(y.group) ? 1 : 0) ||
     x.group.length - y.group.length ||
-    (x.group < y.group ? -1 : 1) ||
-    y.secW - x.secW);                                            // 段落权只当最后的并列裁决(不干扰"哪首歌")
+    (x.group < y.group ? -1 : 1));
   return res.slice(0, top).map((r) => {
     const h = r.det[0];
     const n = h.q.length;
