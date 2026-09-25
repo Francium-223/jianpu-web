@@ -1,4 +1,4 @@
-import { buildIndex, search } from './search.61cb987d.js';
+import { buildIndex, search } from './search.b5641f8f.js';
 import { parseQuery, parseToken, isPitch, show } from './jptok.7c4febcf.js';
 
 /* 数据侧: 只需要"曲名 + 出处" 就能给出可点的外链 —— 不依赖任何 API/key */
