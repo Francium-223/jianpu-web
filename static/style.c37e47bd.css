@@ -27,6 +27,11 @@ button:disabled { opacity: .55; cursor: default; }
 
 .card { border: 1px solid var(--line); border-radius: 8px; padding: .85rem 1rem; margin: .8rem 0; }
 .card.top { border-color: #a7d7bb; background: #f7fdf9; }
+/* 结果区最前面那行"找不到？欢迎补充。"(用户 2026-09-25) */
+.nf { margin: .1rem 0 .7rem; color: var(--dim); font-size: .92rem; }
+.nf-add { border-bottom: 1px dashed currentColor; }
+.nf-add:hover { color: var(--accent); border-bottom-style: solid; }
+
 .head { display: flex; align-items: baseline; gap: .55rem; flex-wrap: wrap; }
 .rank { color: var(--dim); font-size: .85rem; }
 .title { font-size: 1.08rem; font-weight: 650; }
