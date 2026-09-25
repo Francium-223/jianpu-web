@@ -253,6 +253,22 @@ def cmd_spa(a):
              "document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true})); return 1")
         time.sleep(4)
         ok(d.js("return document.querySelectorAll('#out .card').length") > 0, "旋律查歌出卡片")
+        # "找不到？欢迎补充。" -> 结果区最前面一行, 点它应预选『推荐收录』并把刚敲的数字填进 sscore
+        ok(d.js("return document.querySelectorAll('#out p.nf a.nf-add').length") == 1,
+           "结果最前面有「找不到？欢迎补充。」")
+        d.js("var a=document.querySelector('#out a.nf-add'); if(a){a.click();} return 1")
+        ok(d.js("return (document.getElementById('skind')||{}).value") == "new",
+           "点「欢迎补充」预选『推荐收录』")
+        _sc = (d.js("return (document.getElementById('sscore')||{}).value") or "").replace(" ", "")
+        _q = (d.js("return (document.getElementById('q')||{}).value") or "").replace(" ", "")
+        ok(_sc == _q and _sc != "", "并把刚敲的数字填进投稿表单: " + _sc + "（查询是 " + _q + "）")
+        # 没命中时也要有这一行（用户要的是"结果最前面"，空结果同样是结果）
+        d.js("var q=document.getElementById('q'); q.value='77717771777177';"
+             "document.getElementById('form').dispatchEvent(new Event('submit',{cancelable:true})); return 1")
+        time.sleep(2.5)
+        ok(d.js("return document.querySelectorAll('#out p.nf a.nf-add').length") == 1,
+           '查不到时结果区最前面也有这一行')
+
         href = d.js("var a=document.querySelector('#out a.title.tune'); return a?a.getAttribute('href'):''")
         ok(bool(href) and "/s/" in href, "卡片标题就是「本谱一页」链接: " + (href or "(没有)"))
         if href:

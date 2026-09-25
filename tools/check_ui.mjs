@@ -73,6 +73,12 @@ const titleLink = (out.match(/<a class="title tune" href="([^"]+)" data-tune="([
 ok(!!titleLink[1] && /\/s\//.test(titleLink[1]), '卡片标题就是「本谱一页」入口: ' + (titleLink[1] || '(没有)'));
 ok(!/class="tune-link/.test(out), '不再有单独的「本谱一页」链接');
 
+// 2026-09-25 用户: "在前端搜索结果最前面加个'找不到？欢迎补充。'"
+ok(/<p class="nf">找不到？<a class="nf-add" href="#sform">欢迎补充。<\/a><\/p>/.test(out),
+   '结果最前面有「找不到？欢迎补充。」并指向投稿表单');
+ok(out.indexOf('class="nf"') >= 0 && out.indexOf('class="nf"') < out.indexOf('class="card"'),
+   '这行确实在卡片**前面**(不是塞在末尾)');
+
 // 把卡片开头一小段打出来, 方便肉眼核对
 const i = out.indexOf('<div class="links">');
 console.log('\n链接区 HTML:\n', out.slice(i, i + 900).replace(/></g, '>\n<'));

@@ -440,11 +440,18 @@ function tuneTitle(r) {
     ' title="打开这一首的页面">' + name + '</a>';
 }
 
+var QUERY_DIGITS = '';      // 最近一次查询的数字串(按段空格分开): 给"找不到？欢迎补充"预填
 function render(segs, res, ms) {
+  QUERY_DIGITS = segs.map(function (sg) {
+    return sg.map(function (n) { return n.d; }).join('');
+  }).join(' ');
   var qshow = segs.map(show).join('  |  ');
+  // 结果区最前面一行(用户 2026-09-25): "找不到？欢迎补充。" -> 跳到下面投稿表单,
+  // 并把这次敲的数字自动填进"这段旋律的简谱数字"(找不到时它最有用)。没命中时同样给这一行。
+  var nf = '<p class="nf">找不到？<a class="nf-add" href="#sform">欢迎补充。</a></p>';
   if (!res.length) {
     $('status').textContent = '没找到匹配（' + ms + ' 毫秒）。片段至少 5 个音；换更长的片段试试。';
-    $('out').innerHTML = '<p class="hint">如果确认库里应该没有这首歌，点这里告诉作者：' +
+    $('out').innerHTML = nf + '<p class="hint">如果确认库里应该没有这首歌，也可以直接提 issue：' +
       '<span class="links"><a class="add" href="' + issueUrl(qshow) + '" target="_blank" rel="noopener">＋ 建议收录</a></span></p>';
     return;
   }
@@ -478,7 +485,7 @@ function render(segs, res, ms) {
         'title="库里这首有问题 / 想补充资料 → 一键提 issue">＋ 反馈/补充</a>' +
       '</div></div>';
   }
-  $('out').innerHTML = html +
+  $('out').innerHTML = nf + html +
     '<p class="hint">代价 0 = 连升降号都对上；「记号」是升降号一致的音数。' +
     '<b>收录页</b>是这首歌在该站的具体页面。</p>';
 }
@@ -539,6 +546,16 @@ if ($('tform')) {
  * 并 git commit, 再重建索引。返回值里的 file/commit/refresh 用来给用户回话。 */
 document.addEventListener('click', function (ev) {
   // 「每谱一页」的链接: 应用内跳转(不整页刷新, 也不新开标签)
+  // "找不到？欢迎补充。": 跳到投稿表单时顺手预选类型/填好刚敲的旋律
+  var nfa = ev.target && ev.target.closest ? ev.target.closest('a.nf-add') : null;
+  if (nfa) {
+    var kd = $('skind'), sc = $('sscore');
+    if (kd) kd.value = 'new';
+    if (sc && !sc.value) sc.value = QUERY_DIGITS;
+    var st = $('stitle');
+    if (st) setTimeout(function () { st.focus(); }, 0);
+    return;                      // 锚点自己会滚过去, 别拦
+  }
   var tl = ev.target && ev.target.closest ? ev.target.closest('a.tune') : null;
   if (tl) {
     ev.preventDefault();
